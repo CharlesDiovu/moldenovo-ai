@@ -13,6 +13,10 @@ from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import io
+import base64
+from concurrent.futures import ThreadPoolExecutor
+from sam_client import find_structures, crop_structures
 import json
 import os
 import tempfile
@@ -150,4 +154,101 @@ def read_structure(file: UploadFile = File(...)):
         "confidence": parsed.get("confidence", "unknown"),
         "notes": parsed.get("notes", ""),
         "model": "muse-wonder-1.0",
+    }
+
+FIGURE_PROMPT = """This image shows one chemical structure drawing.
+Read ONLY the drawn atoms and bonds. Ignore any printed name.
+Write the molecule as a SMILES string. Give every ring its own digit (1, 2, 3, 4...) and never reuse a ring digit.
+Reply with JSON only, in exactly this shape:
+{"smiles": "<SMILES>", "confidence": "high|medium|low", "notes": "<anything unclear>"}"""
+
+MAX_STRUCTURES = 12
+
+def _attempt(path, effort):
+    """One read of one crop. Never raises; failures are reported in the result."""
+    try:
+        text = ask_with_image(FIGURE_PROMPT, path, effort=effort)
+        parsed = json.loads(text[text.find("{"): text.rfind("}") + 1])
+    except Exception as e:
+        return {"effort": effort, "smiles": None, "raw": "", "confidence": "unknown",
+                "notes": "", "error": str(e)[:200]}
+    raw = parsed.get("smiles", "")
+    mol = Chem.MolFromSmiles(raw)
+    return {
+        "effort": effort,
+        "smiles": Chem.MolToSmiles(mol) if mol is not None else None,
+        "raw": raw,
+        "confidence": parsed.get("confidence", "unknown"),
+        "notes": parsed.get("notes", ""),
+        "error": None if mol is not None else "RDKit rejected this read",
+    }
+
+
+def _read_crop(index_and_image):
+    index, img = index_and_image
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+        img.save(tmp, format="PNG")
+        path = tmp.name
+    try:
+        reads = [_attempt(path, "low"), _attempt(path, "high")]
+    finally:
+        os.remove(path)
+
+    good = [r for r in reads if r["smiles"]]
+    if len(good) == 2 and good[0]["smiles"] == good[1]["smiles"]:
+        status, chosen = "agreed", good[1]
+    elif len(good) == 2:
+        status, chosen = "disagree", good[1]   # high-effort read, but flagged
+    elif len(good) == 1:
+        status, chosen = "single", good[0]
+    else:
+        status, chosen = "failed", None
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return {
+        "index": index,
+        "crop_png": base64.b64encode(buf.getvalue()).decode("ascii"),
+        "status": status,
+        "valid": chosen is not None,
+        "smiles": chosen["smiles"] if chosen else None,
+        "confidence": chosen["confidence"] if chosen else "unknown",
+        "notes": chosen["notes"] if chosen else "",
+        "reads": [{"effort": r["effort"], "smiles": r["smiles"],
+                   "confidence": r["confidence"], "error": r["error"]} for r in reads],
+    }
+
+@app.post("/read-figure")
+def read_figure(file: UploadFile = File(...)):
+    """SAM finds the structures, Wonder reads each, RDKit checks each."""
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp"):
+        return {"error": "Please upload a PNG or JPG image."}
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file.file.read())
+        path = tmp.name
+    try:
+        boxes = find_structures(path)
+        total_found = len(boxes)
+        boxes = boxes[:MAX_STRUCTURES]
+        crops = crop_structures(path, boxes)
+    except Exception as e:
+        return {"error": f"Segmentation failed: {e}"}
+    finally:
+        os.remove(path)
+
+    if not crops:
+        return {"error": "SAM found no structures in this image.", "found": 0}
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        cards = list(pool.map(_read_crop, enumerate(crops)))
+
+    return {
+        "found": total_found,
+        "read": len(cards),
+        "valid": sum(1 for c in cards if c["valid"]),
+        "capped": total_found > MAX_STRUCTURES,
+        "models": {"segmentation": "sam-3.1", "reading": "muse-wonder-1.0"},
+        "cards": cards,
     }

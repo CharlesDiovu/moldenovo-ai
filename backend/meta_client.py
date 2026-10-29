@@ -6,6 +6,7 @@ One place for all calls to the Meta Model API.
 import os
 import json
 import time
+import base64
 import requests
 from dotenv import load_dotenv
 
@@ -22,19 +23,11 @@ def _get_key():
     return key
 
 
-def ask(prompt, model=DEFAULT_MODEL, effort="low", timeout=120):
-    """Send one prompt to a Muse model and return its reply as plain text."""
-    payload = {
-        "model": model,
-        "input": [
-            {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
-        ],
-        "stream": False,
-        "reasoning": {"effort": effort},
-    }
+def _post_with_retries(payload, timeout, tries):
+    """Send a request, retrying if the network drops. Returns the parsed reply."""
     resp = None
     last_error = None
-    for attempt in range(3):                      # try up to 3 times
+    for attempt in range(tries):
         try:
             resp = requests.post(
                 API_URL,
@@ -48,13 +41,16 @@ def ask(prompt, model=DEFAULT_MODEL, effort="low", timeout=120):
             break
         except requests.exceptions.RequestException as e:
             last_error = e
-            time.sleep(2 * (attempt + 1))         # wait 2s, then 4s, then give up
+            time.sleep(2 * (attempt + 1))
     if resp is None:
-        raise RuntimeError(f"Could not reach Meta API after 3 tries: {last_error}")    
+        raise RuntimeError(f"Could not reach Meta API after {tries} tries: {last_error}")
     if resp.status_code != 200:
         raise RuntimeError(f"Meta API error {resp.status_code}: {resp.text[:500]}")
+    return resp.json()
 
-    data = resp.json()
+
+def _extract_text(data):
+    """Pull the answer text out of a Meta reply."""
     parts = []
     for item in data.get("output", []):
         if item.get("type") == "message":
@@ -62,6 +58,19 @@ def ask(prompt, model=DEFAULT_MODEL, effort="low", timeout=120):
                 if block.get("type") == "output_text":
                     parts.append(block.get("text", ""))
     return "".join(parts).strip()
+
+
+def ask(prompt, model=DEFAULT_MODEL, effort="low", timeout=120):
+    """Send one prompt to a Muse model and return its reply as plain text."""
+    payload = {
+        "model": model,
+        "input": [
+            {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
+        ],
+        "stream": False,
+        "reasoning": {"effort": effort},
+    }
+    return _extract_text(_post_with_retries(payload, timeout, tries=3))
 
 
 def ask_json(prompt, **kwargs):
@@ -72,10 +81,8 @@ def ask_json(prompt, **kwargs):
         raise ValueError(f"No JSON found in reply: {text[:300]}")
     return json.loads(text[start : end + 1])
 
-import base64
 
-
-def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", timeout=120):
+def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", timeout=180):
     """Send a prompt plus an image to a Muse vision model. Returns the reply text."""
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -96,25 +103,8 @@ def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", ti
         "stream": False,
         "reasoning": {"effort": effort},
     }
-    resp = requests.post(
-        API_URL,
-        headers={
-            "Authorization": f"Bearer {_get_key()}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
-    if resp.status_code != 200:
-        raise RuntimeError(f"Meta API error {resp.status_code}: {resp.text[:500]}")
+    return _extract_text(_post_with_retries(payload, timeout, tries=2))
 
-    parts = []
-    for item in resp.json().get("output", []):
-        if item.get("type") == "message":
-            for block in item.get("content", []):
-                if block.get("type") == "output_text":
-                    parts.append(block.get("text", ""))
-    return "".join(parts).strip()
 
 if __name__ == "__main__":
     from edits import list_edits
