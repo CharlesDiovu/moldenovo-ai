@@ -19,6 +19,9 @@ PROTECTED_GROUPS = {
     "primary_amide": "[CX3](=O)[NX3H2]",
 }
 
+# The chemist's target profile. The website can change these numbers.
+DEFAULT_PROFILE = {"logp_max": 3.0, "tpsa_max": 100.0}
+
 
 def similarity(smiles_a, smiles_b):
     """Tanimoto similarity: 1.0 = identical, 0.0 = nothing in common."""
@@ -44,16 +47,17 @@ def lost_protected_group(candidate_smiles, start_smiles, protected):
     return None
 
 
-def is_improvement(candidate, current):
+def is_improvement(candidate, current, profile=None):
     """An edit only counts if it fixes the molecule's actual problem."""
-    if current["logp"] > 3:       # problem: too oily -> LogP must drop
+    p = profile or DEFAULT_PROFILE
+    if current["logp"] > p["logp_max"]:      # problem: too oily -> LogP must drop
         return candidate["logp"] < current["logp"] - 0.1 and candidate["qed"] >= current["qed"] - 0.02
-    if current["tpsa"] > 100:     # problem: too polar -> TPSA must drop
+    if current["tpsa"] > p["tpsa_max"]:      # problem: too polar -> TPSA must drop
         return candidate["tpsa"] < current["tpsa"] - 5 and candidate["qed"] >= current["qed"] - 0.02
     return candidate["qed"] > current["qed"] + 0.01   # otherwise: a real QED gain
 
 
-def check_guardrails(candidate, current, start_smiles, min_similarity, protected=None):
+def check_guardrails(candidate, current, start_smiles, min_similarity, protected=None, profile=None):
     """Return a reason string if the candidate must be rejected, else None."""
     if not candidate["valid"]:
         return "Not a valid molecule"
@@ -69,14 +73,15 @@ def check_guardrails(candidate, current, start_smiles, min_similarity, protected
     sim = similarity(candidate["smiles"], start_smiles)
     if sim < min_similarity:
         return f"Too different from the starting molecule (similarity {sim:.2f} < {min_similarity})"
-    if not is_improvement(candidate, current):
+    if not is_improvement(candidate, current, profile):
         return (f"Doesn't fix the problem (LogP {candidate['logp']} vs {current['logp']}, "
                 f"QED {candidate['qed']} vs {current['qed']})")
     return None
 
 
 # ---------------------------------------------------------------
-# THE MOCK PLANNER (the fallback if Muse Spark is unavailable)
+# THE MOCK PLANNER (the fallback if Muse Spark is unavailable).
+# It keeps fixed thresholds, because it is only a safety net.
 # ---------------------------------------------------------------
 def mock_planner(current, tried, rejections):
     menu = list_edits()
@@ -110,7 +115,8 @@ def mock_planner(current, tried, rejections):
     return None
 
 
-def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity=0.4, protected=None):
+def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity=0.4,
+                 protected=None, profile=None):
     """Run a multi-step optimization campaign and return the full story."""
     start = analyze(start_smiles)
     if not start["valid"]:
@@ -144,7 +150,8 @@ def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity
             best, best_reason = None, None
             for smi in candidates:
                 cand = analyze(smi)
-                reason = check_guardrails(cand, current, start["smiles"], min_similarity, protected)
+                reason = check_guardrails(cand, current, start["smiles"],
+                                          min_similarity, protected, profile)
                 if reason is None:
                     if best is None or cand["qed"] > best["qed"]:
                         best = cand

@@ -7,10 +7,7 @@ Same inputs and outputs as the mock planner.
 from edits import list_edits
 from meta_client import ask_json
 
-PROJECT_GOAL = (
-    "an oral small-molecule drug: keep LogP between 1 and 3, TPSA under 100, "
-    "add no new structural alerts, and stay structurally close to the starting molecule"
-)
+DEFAULT_PROFILE = {"logp_max": 3.0, "tpsa_max": 100.0}
 
 
 def _describe(report):
@@ -23,7 +20,7 @@ def _describe(report):
     )
 
 
-def spark_planner(current, tried, rejections, protected=None):
+def spark_planner(current, tried, rejections, protected=None, profile=None):
     """Ask Muse Spark for the next edit. Returns None if no edits are left."""
     menu = {eid: info for eid, info in list_edits().items() if eid not in tried}
     if not menu:
@@ -36,12 +33,21 @@ def spark_planner(current, tried, rejections, protected=None):
         "\n".join(f"- {r['edit_id']}: {r['reason']}" for r in rejections) or "none yet"
     )
     protected_text = ", ".join(protected) if protected else "none"
+
+    p = profile or DEFAULT_PROFILE
+    goal = (
+        f"an oral small-molecule drug: keep LogP at or below {p['logp_max']}, "
+        f"TPSA at or below {p['tpsa_max']}, add no new structural alerts, "
+        "and stay structurally close to the starting molecule"
+    )
+
     prompt = f"""You are a senior medicinal chemist planning one step of a lead optimization.
 
-Project goal: {PROJECT_GOAL}.
+Project goal: {goal}.
 
 Current molecule: {_describe(current)}
 Protected groups (must NOT be removed or altered): {protected_text}
+
 Edits already rejected this round (and why):
 {rejected_text}
 
@@ -51,7 +57,8 @@ You cannot write new molecules.
 
 Rules:
 - Fix the molecule's most important problem first. If nothing is out of range, pick a modest improvement.
-- Do not damage groups likely to be essential for activity (for example the carboxylic acid in an NSAID). If you are protecting such a group, say so.
+- Do not damage groups likely to be essential for activity. If you are protecting such a group, say so.
+- Quote the actual numbers (LogP, TPSA) in your rationale.
 - Call your reasoning a hypothesis to test, not a proven improvement.
 
 Reply with JSON only, no other text, in exactly this shape:

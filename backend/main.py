@@ -1,33 +1,33 @@
 """
 main.py
 The MolDeNovo backend server.
-It exposes the chemistry engine and the edit library over the web.
+It exposes the chemistry engine, the campaign loop, and the Meta-model pipelines.
 """
-from edits import list_edits, apply_edit
-from campaign import run_campaign
-from campaign import mock_planner
-from spark_planner import spark_planner
-from fastapi import FastAPI
+
+import io
+import os
+import json
+import base64
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+
+from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from pydantic import BaseModel
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import io
-import base64
-from concurrent.futures import ThreadPoolExecutor
-from sam_client import find_structures, crop_structures
-import json
-import os
-import tempfile
-from fastapi import UploadFile, File
-from meta_client import ask_with_image
+
 from chem_engine import analyze
 from edits import list_edits, apply_edit
+from campaign import run_campaign, mock_planner, PROTECTED_GROUPS
+from spark_planner import spark_planner
+from meta_client import ask_with_image
+from sam_client import find_structures, crop_structures
 
 app = FastAPI(title="MolDeNovo API")
 
-# Lets the website (which will run on a different address) talk to this server.
+# Lets the website (which runs on a different address) talk to this server.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -43,6 +43,16 @@ class MoleculeRequest(BaseModel):
 class EditRequest(BaseModel):
     smiles: str
     edit_id: str
+
+
+class CampaignRequest(BaseModel):
+    smiles: str
+    max_steps: int = 3
+    min_similarity: float = 0.4
+    use_spark: bool = True
+    protected: list[str] = []
+    logp_max: float = 3.0
+    tpsa_max: float = 100.0
 
 
 @app.get("/health")
@@ -71,21 +81,16 @@ def apply_molecule_edit(req: EditRequest):
         results.append(analyze(new_smiles))
     return {"parent": req.smiles, "edit_id": req.edit_id, "results": results}
 
-class CampaignRequest(BaseModel):
-    smiles: str
-    max_steps: int = 3
-    min_similarity: float = 0.4
-    use_spark: bool = True
-    protected: list[str] = []
-
 
 @app.post("/campaign")
 def campaign(req: CampaignRequest):
     """Run a full multi-step optimization campaign."""
+    profile = {"logp_max": req.logp_max, "tpsa_max": req.tpsa_max}
 
     def safe_spark(current, tried, rejections):
         try:
-            return spark_planner(current, tried, rejections, protected=req.protected)
+            return spark_planner(current, tried, rejections,
+                                 protected=req.protected, profile=profile)
         except Exception as e:
             print(f"[Spark failed: {e}] -> using mock planner")
             return mock_planner(current, tried, rejections)
@@ -97,7 +102,9 @@ def campaign(req: CampaignRequest):
         max_steps=req.max_steps,
         min_similarity=req.min_similarity,
         protected=req.protected,
+        profile=profile,
     )
+
 
 @app.get("/draw")
 def draw(smiles: str, width: int = 360, height: int = 260):
@@ -111,6 +118,24 @@ def draw(smiles: str, width: int = 360, height: int = 260):
     drawer.FinishDrawing()
     return Response(content=drawer.GetDrawingText(), media_type="image/svg+xml")
 
+
+@app.get("/groups")
+def groups(smiles: str):
+    """Which protectable groups does this molecule actually contain?"""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return {"groups": []}
+    found = []
+    for name, smarts in PROTECTED_GROUPS.items():
+        pattern = Chem.MolFromSmarts(smarts)
+        if mol.HasSubstructMatch(pattern):
+            found.append(name)
+    return {"groups": found}
+
+
+# ---------------------------------------------------------------
+# Single drawing -> SMILES (Muse Wonder, checked by RDKit)
+# ---------------------------------------------------------------
 READ_PROMPT = """This image shows a chemical structure drawing.
 Write the molecule as a SMILES string.
 Reply with JSON only, in exactly this shape:
@@ -156,6 +181,10 @@ def read_structure(file: UploadFile = File(...)):
         "model": "muse-wonder-1.0",
     }
 
+
+# ---------------------------------------------------------------
+# Whole figure -> many structures (SAM 3.1 + Muse Wonder + RDKit)
+# ---------------------------------------------------------------
 FIGURE_PROMPT = """This image shows one chemical structure drawing.
 Read ONLY the drawn atoms and bonds. Ignore any printed name.
 Write the molecule as a SMILES string. Give every ring its own digit (1, 2, 3, 4...) and never reuse a ring digit.
@@ -163,6 +192,7 @@ Reply with JSON only, in exactly this shape:
 {"smiles": "<SMILES>", "confidence": "high|medium|low", "notes": "<anything unclear>"}"""
 
 MAX_STRUCTURES = 12
+
 
 def _attempt(path, effort):
     """One read of one crop. Never raises; failures are reported in the result."""
@@ -217,6 +247,7 @@ def _read_crop(index_and_image):
         "reads": [{"effort": r["effort"], "smiles": r["smiles"],
                    "confidence": r["confidence"], "error": r["error"]} for r in reads],
     }
+
 
 @app.post("/read-figure")
 def read_figure(file: UploadFile = File(...)):
