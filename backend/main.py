@@ -53,6 +53,7 @@ class CampaignRequest(BaseModel):
     protected: list[str] = []
     logp_max: float = 3.0
     tpsa_max: float = 100.0
+    stop_when_met: bool = True
 
 
 @app.get("/health")
@@ -103,6 +104,7 @@ def campaign(req: CampaignRequest):
         min_similarity=req.min_similarity,
         protected=req.protected,
         profile=profile,
+        stop_when_met=req.stop_when_met,
     )
 
 

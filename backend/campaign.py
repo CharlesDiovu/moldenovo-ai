@@ -2,6 +2,7 @@
 campaign.py
 The optimization loop for MolDeNovo.
 Planner proposes -> RDKit applies -> guardrails check -> accept or reject -> repeat.
+Stops early once the target profile is met.
 """
 
 from rdkit import Chem, DataStructs
@@ -45,6 +46,17 @@ def lost_protected_group(candidate_smiles, start_smiles, protected):
         if len(cand.GetSubstructMatches(pattern)) < len(start.GetSubstructMatches(pattern)):
             return name
     return None
+
+
+def goals_met(report, profile=None):
+    """True when the molecule already satisfies the target profile."""
+    p = profile or DEFAULT_PROFILE
+    return (
+        report["logp"] <= p["logp_max"]
+        and report["tpsa"] <= p["tpsa_max"]
+        and not report["lipinski_violations"]
+        and not report["veber_violations"]
+    )
 
 
 def is_improvement(candidate, current, profile=None):
@@ -116,18 +128,31 @@ def mock_planner(current, tried, rejections):
 
 
 def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity=0.4,
-                 protected=None, profile=None):
+                 protected=None, profile=None, stop_when_met=True):
     """Run a multi-step optimization campaign and return the full story."""
     start = analyze(start_smiles)
     if not start["valid"]:
         return {"error": "Starting molecule is not valid"}
 
+    p = profile or DEFAULT_PROFILE
     menu = list_edits()
     current = start
     steps, rejections = [], []
     stop_reason = f"Reached the maximum of {max_steps} steps"
 
     for step_number in range(1, max_steps + 1):
+        # Stop rule: do not keep editing a molecule that already meets the goals.
+        if stop_when_met and goals_met(current, p):
+            if steps:
+                stop_reason = (f"Goals met: LogP {current['logp']} (limit {p['logp_max']}), "
+                               f"TPSA {current['tpsa']} (limit {p['tpsa_max']}). Stopped on purpose.")
+            else:
+                stop_reason = (f"The starting molecule already meets the target profile "
+                               f"(LogP {current['logp']} / limit {p['logp_max']}, "
+                               f"TPSA {current['tpsa']} / limit {p['tpsa_max']}). "
+                               "Untick 'Stop when goals are met' to explore polish edits.")
+            break
+
         tried, step_rejections, accepted = set(), [], False
 
         while True:
@@ -185,12 +210,12 @@ def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity
             break
 
     return {"start": start, "steps": steps, "rejections": rejections,
-            "final": current, "stop_reason": stop_reason}
+            "final": current, "stop_reason": stop_reason,
+            "goals_met": goals_met(current, p)}
 
 
 if __name__ == "__main__":
     r = run_campaign("CC(C)Cc1ccc(cc1)C(C)C(=O)O", min_similarity=0.7,
                      protected=["carboxylic_acid"])
     print("steps:", len(r["steps"]))
-    for j in r["rejections"]:
-        print(f"  step {j['step']} | {j['edit_id']} | {j['reason']}")
+    print("stopped:", r["stop_reason"])
