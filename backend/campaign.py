@@ -128,7 +128,7 @@ def mock_planner(current, tried, rejections):
 
 
 def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity=0.4,
-                 protected=None, profile=None, stop_when_met=True):
+                 protected=None, profile=None, stop_when_met=True, evidence=None):
     """Run a multi-step optimization campaign and return the full story."""
     start = analyze(start_smiles)
     if not start["valid"]:
@@ -196,6 +196,7 @@ def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity
                 "edit_name": menu[edit_id]["name"],
                 "rationale": proposal["rationale"],
                 "planner": proposal.get("planner", "mock"),
+                "evidence": (evidence or {}).get(edit_id),
                 "before": current,
                 "after": best,
                 "qed_change": round(best["qed"] - current["qed"], 3),

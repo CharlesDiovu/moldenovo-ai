@@ -22,6 +22,7 @@ from chem_engine import analyze
 from edits import list_edits, apply_edit
 from campaign import run_campaign, mock_planner, PROTECTED_GROUPS
 from spark_planner import spark_planner
+from evidence import load_evidence
 from meta_client import ask_with_image
 from sam_client import find_structures, crop_structures
 
@@ -87,11 +88,13 @@ def apply_molecule_edit(req: EditRequest):
 def campaign(req: CampaignRequest):
     """Run a full multi-step optimization campaign."""
     profile = {"logp_max": req.logp_max, "tpsa_max": req.tpsa_max}
+    evidence = load_evidence()
 
     def safe_spark(current, tried, rejections):
         try:
             return spark_planner(current, tried, rejections,
-                                 protected=req.protected, profile=profile)
+                                 protected=req.protected, profile=profile,
+                                 evidence=evidence)
         except Exception as e:
             print(f"[Spark failed: {e}] -> using mock planner")
             return mock_planner(current, tried, rejections)
@@ -105,6 +108,7 @@ def campaign(req: CampaignRequest):
         protected=req.protected,
         profile=profile,
         stop_when_met=req.stop_when_met,
+        evidence=evidence,
     )
 
 

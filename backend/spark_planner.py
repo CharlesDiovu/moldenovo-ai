@@ -1,7 +1,7 @@
 """
 spark_planner.py
 The Muse Spark planner: the real "AI" that picks the next edit.
-Same inputs and outputs as the mock planner.
+It now also reads matched-pair evidence supplied by code.
 """
 
 from edits import list_edits
@@ -20,15 +20,21 @@ def _describe(report):
     )
 
 
-def spark_planner(current, tried, rejections, protected=None, profile=None):
+def spark_planner(current, tried, rejections, protected=None, profile=None, evidence=None):
     """Ask Muse Spark for the next edit. Returns None if no edits are left."""
     menu = {eid: info for eid, info in list_edits().items() if eid not in tried}
     if not menu:
         return None
 
-    menu_text = "\n".join(
-        f"- {eid}: {info['name']} ({info['why']})" for eid, info in menu.items()
-    )
+    evidence = evidence or {}
+    lines = []
+    for eid, info in menu.items():
+        line = f"- {eid}: {info['name']} ({info['why']})"
+        if eid in evidence:
+            line += f"\n    DATA: {evidence[eid]['summary']}"
+        lines.append(line)
+    menu_text = "\n".join(lines)
+
     rejected_text = (
         "\n".join(f"- {r['edit_id']}: {r['reason']}" for r in rejections) or "none yet"
     )
@@ -53,16 +59,22 @@ Edits already rejected this round (and why):
 
 You may ONLY choose one edit from this menu. Software will apply it and check it.
 You cannot write new molecules.
+Each edit may have a DATA line: matched molecular pair statistics for EGFR inhibitors
+from ChEMBL, measuring how the edit changed POTENCY (pChEMBL, higher is more potent).
 {menu_text}
 
 Rules:
 - Fix the molecule's most important problem first. If nothing is out of range, pick a modest improvement.
 - Do not damage groups likely to be essential for activity. If you are protecting such a group, say so.
 - Quote the actual numbers (LogP, TPSA) in your rationale.
+- If the chosen edit has a DATA line, cite its numbers exactly as given. Never invent statistics.
+- If the DATA says too few pairs, or no evidence, say that plainly.
+- The DATA concerns potency in EGFR inhibitors only, not solubility or metabolism, and may not transfer
+  if the molecule is not EGFR-like. If an edit more often worsens potency than improves it, weigh that.
 - Call your reasoning a hypothesis to test, not a proven improvement.
 
 Reply with JSON only, no other text, in exactly this shape:
-{{"edit_id": "<one id from the menu>", "rationale": "<two sentences>"}}"""
+{{"edit_id": "<one id from the menu>", "rationale": "<two or three sentences>"}}"""
 
     reply = ask_json(prompt)
     edit_id = reply.get("edit_id")
