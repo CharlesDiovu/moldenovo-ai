@@ -15,3 +15,9 @@ node_modules/
 # editor and system
 .vscode/
 .DS_Store
+
+backend/sam_raw.jsonl
+backend/crops/
+backend/sam_boxes.png
+backend/data/
+backend/test_figure.jpg
