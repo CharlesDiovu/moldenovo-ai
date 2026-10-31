@@ -90,6 +90,14 @@ type FigureItem = {
   cards?: FigureCard[];
 };
 
+type Analysis = {
+  valid: boolean;
+  mw?: number;
+  logp?: number;
+  tpsa?: number;
+  qed?: number;
+};
+
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   agreed: {
     label: "Two reads agree",
@@ -109,6 +117,34 @@ const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   },
 };
 
+/* ---------- workbench options ---------- */
+const PRESETS = [
+  { id: "oral", label: "Oral drug", note: "LogP ≤ 3, TPSA ≤ 100", logp: 3, tpsa: 100 },
+  { id: "cns", label: "Brain-penetrant", note: "LogP ≤ 3, TPSA ≤ 70", logp: 3, tpsa: 70 },
+  { id: "gut", label: "Gut-restricted", note: "LogP ≤ 3, TPSA ≤ 140", logp: 3, tpsa: 140 },
+  { id: "custom", label: "Custom", note: "Set your own limits", logp: 3, tpsa: 100 },
+];
+
+const CLOSENESS = [
+  { label: "Explore", value: 0.3, note: "Bigger changes allowed" },
+  { label: "Balanced", value: 0.4, note: "A sensible default" },
+  { label: "Close", value: 0.6, note: "Small changes only" },
+  { label: "Very close", value: 0.75, note: "Minimal changes" },
+];
+
+const EXAMPLES = [
+  { name: "Ibuprofen", smiles: "CC(C)Cc1ccc(cc1)C(C)C(=O)O" },
+  { name: "Aspirin", smiles: "CC(=O)Oc1ccccc1C(=O)O" },
+  { name: "AG-1478 (EGFR)", smiles: "COc1cc2ncnc(Nc3cccc(Cl)c3)c2cc1OC" },
+];
+
+function presetFor(logp: number, tpsa: number): string {
+  const hit = PRESETS.find(
+    (p) => p.id !== "custom" && p.logp === logp && p.tpsa === tpsa
+  );
+  return hit ? hit.id : "custom";
+}
+
 /* ---------- shared look ---------- */
 const GLASS =
   "rounded-[28px] border border-white/70 bg-white/55 shadow-[0_10px_40px_rgba(14,116,144,0.10)] backdrop-blur-xl";
@@ -121,30 +157,10 @@ const PILL_OUTLINE =
 const NAVY = "text-[#0b1f3a]";
 
 const HOW_IT_WORKS = [
-  {
-    n: "01",
-    model: "SAM 3.1",
-    tag: "Meta",
-    text: "Finds every structure in a figure from a paper.",
-  },
-  {
-    n: "02",
-    model: "Muse Wonder",
-    tag: "Meta",
-    text: "Reads each structure twice. Two agreeing reads earn a green badge.",
-  },
-  {
-    n: "03",
-    model: "Muse Spark",
-    tag: "Meta",
-    text: "Plans each edit from your goals and real matched-pair data.",
-  },
-  {
-    n: "04",
-    model: "RDKit",
-    tag: "Open source",
-    text: "Applies and checks every molecule. No AI writes chemistry.",
-  },
+  { n: "01", model: "SAM 3.1", tag: "Meta", text: "Finds every structure in a figure from a paper." },
+  { n: "02", model: "Muse Wonder", tag: "Meta", text: "Reads each structure twice. Two agreeing reads earn a green badge." },
+  { n: "03", model: "Muse Spark", tag: "Meta", text: "Plans each edit from your goals and real matched-pair data." },
+  { n: "04", model: "RDKit", tag: "Open source", text: "Applies and checks every molecule. No AI writes chemistry." },
 ];
 
 function HeroArt() {
@@ -160,7 +176,6 @@ function HeroArt() {
       />
     );
   }
-  // Fallback drawn with SVG: soft glass spheres and hexagons.
   return (
     <svg viewBox="0 0 600 460" className="h-full w-full" aria-hidden="true">
       <defs>
@@ -196,10 +211,7 @@ function HeroArt() {
 
 function BackdropHexes() {
   return (
-    <svg
-      className="pointer-events-none absolute inset-0 -z-10 h-full w-full"
-      aria-hidden="true"
-    >
+    <svg className="pointer-events-none absolute inset-0 -z-10 h-full w-full" aria-hidden="true">
       <defs>
         <pattern id="hexpat" width="56" height="97" patternUnits="userSpaceOnUse" patternTransform="scale(1.3)">
           <path
@@ -255,6 +267,118 @@ function Delta({ label, a, b }: { label: string; a: number; b: number }) {
   );
 }
 
+/* ---------- small workbench pieces ---------- */
+function StepHead({ n, title, hint }: { n: number; title: string; hint: string }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="flex h-8 w-8 flex-none items-center justify-center rounded-full bg-[#0f8b8d] text-sm font-semibold text-white">
+        {n}
+      </span>
+      <div>
+        <h3 className={`text-lg font-bold ${NAVY}`}>{title}</h3>
+        <p className="text-sm text-slate-600">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
+function Stepper({
+  label,
+  value,
+  step,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  step: number;
+  min: number;
+  max: number;
+  onChange: (v: number) => void;
+}) {
+  const clamp = (v: number) => Math.min(max, Math.max(min, Math.round(v * 10) / 10));
+  return (
+    <div className="rounded-2xl bg-white/70 p-3">
+      <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+        {label}
+      </div>
+      <div className="mt-2 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => onChange(clamp(value - step))}
+          className="h-9 w-9 rounded-full border border-slate-300 bg-white text-lg text-slate-700 hover:bg-slate-50"
+          aria-label={`Decrease ${label}`}
+        >
+          −
+        </button>
+        <span className={`min-w-[3.5rem] text-center text-xl font-bold ${NAVY}`}>
+          {value}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(clamp(value + step))}
+          className="h-9 w-9 rounded-full border border-slate-300 bg-white text-lg text-slate-700 hover:bg-slate-50"
+          aria-label={`Increase ${label}`}
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Switch({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 flex-none rounded-full transition ${
+          checked ? "bg-[#0f8b8d]" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+            checked ? "left-[22px]" : "left-0.5"
+          }`}
+        />
+      </button>
+      <div>
+        <div className="text-sm font-medium text-slate-800">{label}</div>
+        <div className="text-xs text-slate-500">{hint}</div>
+      </div>
+    </div>
+  );
+}
+
+function Chip({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div
+      className={`rounded-xl px-3 py-2 text-center ${
+        warn ? "bg-amber-50 text-amber-900" : "bg-white/80 text-slate-800"
+      }`}
+    >
+      <div className="text-[10px] font-medium uppercase tracking-wider opacity-70">
+        {label}
+      </div>
+      <div className="text-base font-bold">{value}</div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [smiles, setSmiles] = useState("CC(C)Cc1ccc(cc1)C(C)C(=O)O");
   const [similarity, setSimilarity] = useState(0.4);
@@ -277,7 +401,11 @@ export default function Home() {
   const [protectedSel, setProtectedSel] = useState<string[]>([]);
   const [logpMax, setLogpMax] = useState(3);
   const [tpsaMax, setTpsaMax] = useState(100);
+  const [preset, setPreset] = useState("oral");
   const [stopWhenMet, setStopWhenMet] = useState(true);
+
+  // Live analysis of the starting molecule
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
 
   // Project file import
   const pendingProtected = useRef<string[] | null>(null);
@@ -286,16 +414,12 @@ export default function Home() {
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `${API}/groups?smiles=${encodeURIComponent(smiles)}`
-        );
+        const res = await fetch(`${API}/groups?smiles=${encodeURIComponent(smiles)}`);
         const data = await res.json();
         const found: string[] = data.groups ?? [];
         setAvailableGroups(found);
         if (pendingProtected.current) {
-          setProtectedSel(
-            pendingProtected.current.filter((g) => found.includes(g))
-          );
+          setProtectedSel(pendingProtected.current.filter((g) => found.includes(g)));
           pendingProtected.current = null;
         } else {
           setProtectedSel(found);
@@ -303,6 +427,22 @@ export default function Home() {
       } catch {
         setAvailableGroups([]);
         setProtectedSel([]);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [smiles]);
+
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ smiles }),
+        });
+        setAnalysis(await res.json());
+      } catch {
+        setAnalysis(null);
       }
     }, 500);
     return () => clearTimeout(t);
@@ -328,10 +468,7 @@ export default function Home() {
       try {
         const form = new FormData();
         form.append("file", files[i]);
-        const res = await fetch(`${API}/read-figure`, {
-          method: "POST",
-          body: form,
-        });
+        const res = await fetch(`${API}/read-figure`, { method: "POST", body: form });
         const data = await res.json();
         if (data.error) {
           patchFigure(id, { loading: false, error: data.error });
@@ -370,10 +507,7 @@ export default function Home() {
     try {
       const form = new FormData();
       form.append("file", file);
-      const res = await fetch(`${API}/read-structure`, {
-        method: "POST",
-        body: form,
-      });
+      const res = await fetch(`${API}/read-structure`, { method: "POST", body: form });
       setReadResult(await res.json());
     } catch {
       setReadResult({
@@ -446,9 +580,7 @@ export default function Home() {
       },
       result,
     };
-    const blob = new Blob([JSON.stringify(project, null, 2)], {
-      type: "application/json",
-    });
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -469,15 +601,16 @@ export default function Home() {
       pendingProtected.current = Array.isArray(s.protected) ? s.protected : [];
       setSmiles(s.smiles ?? smiles);
       setSimilarity(s.min_similarity ?? 0.4);
-      setLogpMax(s.logp_max ?? 3);
-      setTpsaMax(s.tpsa_max ?? 100);
+      const l = s.logp_max ?? 3;
+      const t = s.tpsa_max ?? 100;
+      setLogpMax(l);
+      setTpsaMax(t);
+      setPreset(presetFor(l, t));
       setStopWhenMet(s.stop_when_met ?? true);
       setResult(data.result as Campaign);
       setError("");
       setUsedNote("");
-      setProjectNote(
-        `Loaded project saved ${data.saved_at ?? "earlier"}. No models were called.`
-      );
+      setProjectNote(`Loaded project saved ${data.saved_at ?? "earlier"}. No models were called.`);
       document
         .getElementById("workbench")
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -485,6 +618,23 @@ export default function Home() {
       setProjectNote("Could not read that file.");
     }
   }
+
+  function choosePreset(id: string) {
+    setPreset(id);
+    const p = PRESETS.find((x) => x.id === id);
+    if (p && id !== "custom") {
+      setLogpMax(p.logp);
+      setTpsaMax(p.tpsa);
+    }
+  }
+
+  const closeIdx = CLOSENESS.reduce(
+    (best, c, i) =>
+      Math.abs(c.value - similarity) < Math.abs(CLOSENESS[best].value - similarity) ? i : best,
+    0
+  );
+  const presetLabel = PRESETS.find((p) => p.id === preset)?.label ?? "Custom";
+  const molOk = analysis?.valid === true;
 
   return (
     <main
@@ -500,9 +650,7 @@ export default function Home() {
 
       {/* NAV */}
       <header className="mx-auto flex max-w-6xl items-center px-6 pt-8">
-        <div className={`text-lg font-semibold tracking-[0.35em] ${NAVY}`}>
-          MOLDENOVO
-        </div>
+        <div className={`text-lg font-semibold tracking-[0.35em] ${NAVY}`}>MOLDENOVO</div>
         <nav className="ml-auto hidden items-center gap-8 text-sm text-slate-700 sm:flex">
           <a href="#how" className="hover:text-[#0b6f71]">How it works</a>
           <a href="#workbench" className="hover:text-[#0b6f71]">Workbench</a>
@@ -518,9 +666,7 @@ export default function Home() {
       {/* HERO */}
       <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-14 md:grid-cols-2">
         <div>
-          <h1
-            className={`text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl ${NAVY}`}
-          >
+          <h1 className={`text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl ${NAVY}`}>
             Medicinal chemistry,
             <br />
             checked at every step.
@@ -533,10 +679,7 @@ export default function Home() {
             <a href="#workbench" className={`${PILL} inline-block`}>
               Open the workbench →
             </a>
-            <a
-              href="#how"
-              className="text-sm font-medium text-[#0b2a4a] underline underline-offset-4"
-            >
+            <a href="#how" className="text-sm font-medium text-[#0b2a4a] underline underline-offset-4">
               See how it works
             </a>
           </div>
@@ -555,9 +698,7 @@ export default function Home() {
 
       {/* HOW IT WORKS */}
       <section id="how" className="mx-auto max-w-6xl px-6 pb-16">
-        <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">
-          How it works
-        </p>
+        <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">How it works</p>
         <h2 className={`mt-3 text-4xl font-extrabold tracking-tight ${NAVY}`}>
           Four tools, one checked pipeline.
         </h2>
@@ -578,503 +719,615 @@ export default function Home() {
       </section>
 
       {/* WORKBENCH */}
-      <section id="workbench" className="mx-auto max-w-4xl scroll-mt-8 px-6 pb-20">
-        <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">
-          Workbench
-        </p>
-        <h2 className={`mt-3 text-4xl font-extrabold tracking-tight ${NAVY}`}>
-          Start with a clearer picture.
-        </h2>
-
-        {/* INPUT CARD */}
-        <div className={`${GLASS} mt-8 p-6`}>
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-medium text-slate-600">
-              Starting molecule (SMILES)
-            </label>
-            <label className="ml-auto cursor-pointer rounded-full border border-slate-300 bg-white/50 px-4 py-1 text-xs font-medium text-slate-700 hover:bg-white/80">
-              Open a project file
-              <input
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) importProject(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
+      <section id="workbench" className="mx-auto max-w-6xl scroll-mt-8 px-6 pb-20">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">Workbench</p>
+            <h2 className={`mt-3 text-4xl font-extrabold tracking-tight ${NAVY}`}>
+              Start with a clearer picture.
+            </h2>
           </div>
-          <input
-            value={smiles}
-            onChange={(e) => setSmiles(e.target.value)}
-            className="mt-2 w-full rounded-xl border border-slate-200 bg-white/90 px-4 py-3 font-mono text-sm outline-none focus:border-[#0f8b8d]"
-          />
-          {usedNote && <p className="mt-2 text-xs text-[#0b6f71]">{usedNote}</p>}
-          {projectNote && (
-            <p className="mt-2 text-xs text-[#0b6f71]">{projectNote}</p>
-          )}
-
-          {/* UPLOAD BUTTONS */}
-          <div className="mt-4 flex flex-wrap gap-3">
-            <label className={PILL_OUTLINE}>
-              {reading
-                ? "Muse Wonder is reading..."
-                : "Upload one molecule drawing"}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                disabled={reading}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUpload(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-
-            <label className="inline-block cursor-pointer rounded-full bg-[#0f8b8d] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#0c7274]">
-              {figureBusy
-                ? "SAM + Wonder are working..."
-                : "Upload figures with many molecules"}
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                className="hidden"
-                disabled={figureBusy}
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  if (files.length) handleFigures(files);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-
-          {/* CONFIRM WHAT WE READ (single drawing) */}
-          {readResult && (
-            <div className="mt-5 rounded-2xl border border-white/80 bg-white/70 p-4">
-              {readResult.valid && readResult.smiles ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <h3 className={`font-semibold ${NAVY}`}>
-                      Is this your molecule?
-                    </h3>
-                    <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
-                      Read by {readResult.model} · confidence{" "}
-                      {readResult.confidence}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl bg-white p-3 text-center">
-                      <div className="mb-1 text-xs font-medium uppercase tracking-wider text-slate-500">
-                        Your upload
-                      </div>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={uploadUrl}
-                        alt="Your upload"
-                        className="mx-auto h-48 w-full object-contain"
-                      />
-                    </div>
-                    <MolImage
-                      smiles={readResult.smiles}
-                      label="What we understood (redrawn by RDKit)"
-                    />
-                  </div>
-                  <p className="mt-3 font-mono text-xs text-slate-500">
-                    {readResult.smiles}
-                  </p>
-                  {readResult.notes && (
-                    <p className="mt-2 text-xs text-slate-600">
-                      Model notes: {readResult.notes}
-                    </p>
-                  )}
-                  <p className="mt-2 text-xs text-slate-500">
-                    Compare the two drawings carefully. Vision models can
-                    misread structures, and a valid molecule is not always the
-                    right one.
-                  </p>
-                  <div className="mt-4 flex gap-3">
-                    <button onClick={acceptRead} className={PILL_SMALL}>
-                      Yes, use this molecule
-                    </button>
-                    <button
-                      onClick={discardRead}
-                      className="rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm font-medium text-slate-700 hover:bg-white"
-                    >
-                      No, discard
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-red-600">{readResult.error}</p>
-                  {readResult.raw_guess && (
-                    <p className="mt-1 font-mono text-xs text-slate-500">
-                      Model said: {readResult.raw_guess}
-                    </p>
-                  )}
-                  <button
-                    onClick={discardRead}
-                    className="mt-3 rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm text-slate-700 hover:bg-white"
-                  >
-                    Dismiss
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* TARGET PROFILE */}
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <label className="text-sm font-medium text-slate-600">
-              Target profile: maximum LogP{" "}
-              <span className="font-semibold text-[#0b6f71]">
-                {logpMax.toFixed(1)}
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={5}
-                step={0.5}
-                value={logpMax}
-                onChange={(e) => setLogpMax(parseFloat(e.target.value))}
-                className="mt-2 w-full accent-[#0f8b8d]"
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-600">
-              Maximum TPSA{" "}
-              <span className="font-semibold text-[#0b6f71]">{tpsaMax}</span>
-              <input
-                type="range"
-                min={40}
-                max={140}
-                step={10}
-                value={tpsaMax}
-                onChange={(e) => setTpsaMax(parseFloat(e.target.value))}
-                className="mt-2 w-full accent-[#0f8b8d]"
-              />
-            </label>
-          </div>
-
-          <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
+          <label className="ml-auto cursor-pointer rounded-full border border-slate-300 bg-white/60 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-white">
+            Open a project file
             <input
-              type="checkbox"
-              className="accent-[#0f8b8d]"
-              checked={stopWhenMet}
-              onChange={(e) => setStopWhenMet(e.target.checked)}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importProject(f);
+                e.target.value = "";
+              }}
             />
-            Stop when goals are met (recommended)
           </label>
+        </div>
+        {projectNote && <p className="mt-3 text-sm text-[#0b6f71]">{projectNote}</p>}
 
-          {/* PROTECTED GROUPS */}
-          <div className="mt-6">
-            <div className="text-sm font-medium text-slate-600">
-              Protect these groups (the AI may not remove them)
-            </div>
-            {availableGroups.length === 0 ? (
-              <p className="mt-1 text-xs text-slate-500">
-                None of the protectable groups were found in this molecule.
-              </p>
-            ) : (
-              <div className="mt-2 flex flex-wrap gap-4">
-                {availableGroups.map((g) => (
-                  <label key={g} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      className="accent-[#0f8b8d]"
-                      checked={protectedSel.includes(g)}
-                      onChange={(e) =>
-                        setProtectedSel((prev) =>
-                          e.target.checked
-                            ? [...prev, g]
-                            : prev.filter((x) => x !== g)
-                        )
-                      }
-                    />
-                    {GROUP_LABELS[g] ?? g}
-                  </label>
+        <div className="mt-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+          {/* LEFT: the three steps */}
+          <div className="space-y-6">
+            {/* STEP 1 */}
+            <div className={`${GLASS} p-6`}>
+              <StepHead
+                n={1}
+                title="Your molecule"
+                hint="Type a SMILES, pick an example, or upload a drawing."
+              />
+              <input
+                value={smiles}
+                onChange={(e) => setSmiles(e.target.value)}
+                spellCheck={false}
+                className="mt-4 w-full rounded-xl border border-slate-200 bg-white/90 px-4 py-3 font-mono text-sm outline-none focus:border-[#0f8b8d]"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500">Try:</span>
+                {EXAMPLES.map((ex) => (
+                  <button
+                    key={ex.name}
+                    type="button"
+                    onClick={() => {
+                      setSmiles(ex.smiles);
+                      setResult(null);
+                      setUsedNote("");
+                    }}
+                    className="rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-white"
+                  >
+                    {ex.name}
+                  </button>
                 ))}
               </div>
-            )}
+              {usedNote && <p className="mt-2 text-xs text-[#0b6f71]">{usedNote}</p>}
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <label className={PILL_OUTLINE}>
+                  {reading ? "Muse Wonder is reading..." : "Upload one drawing"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    disabled={reading}
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleUpload(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                <label className="inline-block cursor-pointer rounded-full bg-[#0f8b8d] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#0c7274]">
+                  {figureBusy ? "SAM + Wonder are working..." : "Upload figures with many molecules"}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    multiple
+                    className="hidden"
+                    disabled={figureBusy}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length) handleFigures(files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+
+              {/* CONFIRM WHAT WE READ (single drawing) */}
+              {readResult && (
+                <div className="mt-5 rounded-2xl border border-white/80 bg-white/70 p-4">
+                  {readResult.valid && readResult.smiles ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <h3 className={`font-semibold ${NAVY}`}>Is this your molecule?</h3>
+                        <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
+                          Read by {readResult.model} · confidence {readResult.confidence}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl bg-white p-3 text-center">
+                          <div className="mb-1 text-xs font-medium uppercase tracking-wider text-slate-500">
+                            Your upload
+                          </div>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={uploadUrl}
+                            alt="Your upload"
+                            className="mx-auto h-48 w-full object-contain"
+                          />
+                        </div>
+                        <MolImage
+                          smiles={readResult.smiles}
+                          label="What we understood (redrawn by RDKit)"
+                        />
+                      </div>
+                      <p className="mt-3 break-all font-mono text-xs text-slate-500">
+                        {readResult.smiles}
+                      </p>
+                      {readResult.notes && (
+                        <p className="mt-2 text-xs text-slate-600">
+                          Model notes: {readResult.notes}
+                        </p>
+                      )}
+                      <p className="mt-2 text-xs text-slate-500">
+                        Compare the two drawings carefully. Vision models can
+                        misread structures, and a valid molecule is not always
+                        the right one.
+                      </p>
+                      <div className="mt-4 flex gap-3">
+                        <button onClick={acceptRead} className={PILL_SMALL}>
+                          Yes, use this molecule
+                        </button>
+                        <button
+                          onClick={discardRead}
+                          className="rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm font-medium text-slate-700 hover:bg-white"
+                        >
+                          No, discard
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-red-600">{readResult.error}</p>
+                      {readResult.raw_guess && (
+                        <p className="mt-1 font-mono text-xs text-slate-500">
+                          Model said: {readResult.raw_guess}
+                        </p>
+                      )}
+                      <button
+                        onClick={discardRead}
+                        className="mt-3 rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm text-slate-700 hover:bg-white"
+                      >
+                        Dismiss
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* STEP 2 */}
+            <div className={`${GLASS} p-6`}>
+              <StepHead
+                n={2}
+                title="Your goal"
+                hint="What kind of drug are you aiming for? These are rules of thumb, not guarantees."
+              />
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {PRESETS.map((p) => {
+                  const on = preset === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => choosePreset(p.id)}
+                      className={`rounded-2xl border p-4 text-left transition ${
+                        on
+                          ? "border-[#0f8b8d] bg-white shadow-sm ring-2 ring-[#0f8b8d]/25"
+                          : "border-slate-200 bg-white/60 hover:bg-white/90"
+                      }`}
+                    >
+                      <div className={`font-bold ${NAVY}`}>{p.label}</div>
+                      <div className="mt-0.5 text-xs text-slate-600">{p.note}</div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {preset === "custom" && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <Stepper
+                    label="Maximum LogP"
+                    value={logpMax}
+                    step={0.5}
+                    min={1}
+                    max={5}
+                    onChange={setLogpMax}
+                  />
+                  <Stepper
+                    label="Maximum TPSA"
+                    value={tpsaMax}
+                    step={10}
+                    min={40}
+                    max={140}
+                    onChange={setTpsaMax}
+                  />
+                </div>
+              )}
+
+              <div className="mt-5">
+                <Switch
+                  checked={stopWhenMet}
+                  onChange={setStopWhenMet}
+                  label="Stop when goals are met"
+                  hint="Recommended. Prevents pointless extra edits."
+                />
+              </div>
+            </div>
+
+            {/* STEP 3 */}
+            <div className={`${GLASS} p-6`}>
+              <StepHead
+                n={3}
+                title="Guardrails"
+                hint="What the AI must not touch, and how far it may wander."
+              />
+
+              <div className="mt-4 text-xs font-medium uppercase tracking-wider text-slate-500">
+                Protected groups
+              </div>
+              {availableGroups.length === 0 ? (
+                <p className="mt-2 text-sm text-slate-500">
+                  None of the protectable groups were found in this molecule.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {availableGroups.map((g) => {
+                    const on = protectedSel.includes(g);
+                    return (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() =>
+                          setProtectedSel((prev) =>
+                            on ? prev.filter((x) => x !== g) : [...prev, g]
+                          )
+                        }
+                        className={`rounded-full border px-4 py-1.5 text-sm font-medium transition ${
+                          on
+                            ? "border-[#0f8b8d] bg-[#0f8b8d] text-white"
+                            : "border-slate-300 bg-white/70 text-slate-700 hover:bg-white"
+                        }`}
+                      >
+                        {on ? "🔒 " : ""}
+                        {GROUP_LABELS[g] ?? g}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="mt-6 text-xs font-medium uppercase tracking-wider text-slate-500">
+                How close to stay to your molecule
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {CLOSENESS.map((c, i) => {
+                  const on = i === closeIdx;
+                  return (
+                    <button
+                      key={c.label}
+                      type="button"
+                      onClick={() => setSimilarity(c.value)}
+                      className={`rounded-2xl border px-3 py-3 text-center transition ${
+                        on
+                          ? "border-[#0f8b8d] bg-white shadow-sm ring-2 ring-[#0f8b8d]/25"
+                          : "border-slate-200 bg-white/60 hover:bg-white/90"
+                      }`}
+                    >
+                      <div className={`text-sm font-bold ${NAVY}`}>{c.label}</div>
+                      <div className="mt-0.5 text-[11px] text-slate-500">{c.note}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
-          <label className="mt-6 block text-sm font-medium text-slate-600">
-            How far may the AI wander from your molecule? Minimum similarity:{" "}
-            <span className="font-semibold text-[#0b6f71]">
-              {similarity.toFixed(2)}
-            </span>
-          </label>
-          <input
-            type="range"
-            min={0.2}
-            max={0.9}
-            step={0.05}
-            value={similarity}
-            onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-            className="mt-2 w-full accent-[#0f8b8d]"
-          />
-          <div className="flex justify-between text-xs text-slate-500">
-            <span>Explore freely</span>
-            <span>Stay very close</span>
-          </div>
+          {/* RIGHT: live preview and run */}
+          <div className="lg:sticky lg:top-6 lg:self-start">
+            <div className={`${GLASS} p-6`}>
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Live preview
+              </div>
+              <div className="mt-3 flex h-56 items-center justify-center rounded-2xl bg-white/80">
+                {molOk ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`${API}/draw?smiles=${encodeURIComponent(smiles)}&width=420&height=300`}
+                    alt={smiles}
+                    className="h-full w-full object-contain p-2"
+                  />
+                ) : (
+                  <p className="px-6 text-center text-sm text-slate-500">
+                    {analysis ? "That is not a valid molecule yet." : "Waiting for the backend..."}
+                  </p>
+                )}
+              </div>
 
-          <button onClick={run} disabled={loading} className={`${PILL} mt-6`}>
-            {loading
-              ? "Muse Spark is planning (about a minute)..."
-              : "Run optimization campaign →"}
-          </button>
-          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+              {molOk && (
+                <div className="mt-3 grid grid-cols-4 gap-2">
+                  <Chip label="MW" value={`${analysis?.mw ?? "-"}`} />
+                  <Chip
+                    label="LogP"
+                    value={`${analysis?.logp ?? "-"}`}
+                    warn={(analysis?.logp ?? 0) > logpMax}
+                  />
+                  <Chip
+                    label="TPSA"
+                    value={`${analysis?.tpsa ?? "-"}`}
+                    warn={(analysis?.tpsa ?? 0) > tpsaMax}
+                  />
+                  <Chip label="QED" value={`${analysis?.qed ?? "-"}`} />
+                </div>
+              )}
+              {molOk && (analysis?.logp ?? 0) <= logpMax && (analysis?.tpsa ?? 0) <= tpsaMax && (
+                <p className="mt-2 text-xs text-[#0b6f71]">
+                  Already within your goal. With “Stop when goals are met” on,
+                  the campaign will end straight away.
+                </p>
+              )}
+              {molOk && ((analysis?.logp ?? 0) > logpMax || (analysis?.tpsa ?? 0) > tpsaMax) && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Amber means above your limit. That is what the campaign will try to fix.
+                </p>
+              )}
+
+              <div className="mt-5 space-y-1 border-t border-white/80 pt-4 text-sm text-slate-700">
+                <div>
+                  <span className="text-slate-500">Goal:</span> {presetLabel} · LogP ≤ {logpMax} · TPSA ≤ {tpsaMax}
+                </div>
+                <div>
+                  <span className="text-slate-500">Protected:</span>{" "}
+                  {protectedSel.length
+                    ? protectedSel.map((g) => GROUP_LABELS[g] ?? g).join(", ")
+                    : "nothing"}
+                </div>
+                <div>
+                  <span className="text-slate-500">Stay:</span> {CLOSENESS[closeIdx].label}
+                </div>
+              </div>
+
+              <button
+                onClick={run}
+                disabled={loading || !molOk}
+                className={`${PILL} mt-5 w-full`}
+              >
+                {loading
+                  ? "Muse Spark is planning (about a minute)..."
+                  : "Run optimization campaign →"}
+              </button>
+              {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+              <p className="mt-3 text-[11px] text-slate-500">
+                Muse Spark proposes each edit. RDKit applies and checks it.
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* FIGURE RESULTS */}
-        {figures.length > 0 && (
-          <div className="mt-12">
-            <h2 className={`text-2xl font-extrabold tracking-tight ${NAVY}`}>
-              Structures found in your figures
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              SAM 3.1 finds each structure, Muse Wonder reads it twice, and
-              RDKit checks every answer. Always compare the crop with the
-              redraw before using a molecule.
-            </p>
+        <div className="mx-auto max-w-4xl">
+          {/* FIGURE RESULTS */}
+          {figures.length > 0 && (
+            <div className="mt-12">
+              <h2 className={`text-2xl font-extrabold tracking-tight ${NAVY}`}>
+                Structures found in your figures
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                SAM 3.1 finds each structure, Muse Wonder reads it twice, and
+                RDKit checks every answer. Always compare the crop with the
+                redraw before using a molecule.
+              </p>
 
-            {figures.map((fig) => (
-              <div key={fig.id} className="mt-6">
-                <div className="flex items-center gap-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={fig.previewUrl}
-                    alt={fig.name}
-                    className="h-14 w-14 rounded-lg border border-white object-cover"
-                  />
-                  <div>
-                    <div className="text-sm font-semibold">{fig.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {fig.loading
-                        ? "Working. A figure can take a few minutes."
-                        : fig.error
-                        ? "Failed"
-                        : `${fig.found} structure(s) found${
-                            fig.capped ? " (showing the first 12)" : ""
-                          }`}
+              {figures.map((fig) => (
+                <div key={fig.id} className="mt-6">
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={fig.previewUrl}
+                      alt={fig.name}
+                      className="h-14 w-14 rounded-lg border border-white object-cover"
+                    />
+                    <div>
+                      <div className="text-sm font-semibold">{fig.name}</div>
+                      <div className="text-xs text-slate-500">
+                        {fig.loading
+                          ? "Working. A figure can take a few minutes."
+                          : fig.error
+                          ? "Failed"
+                          : `${fig.found} structure(s) found${
+                              fig.capped ? " (showing the first 12)" : ""
+                            }`}
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {fig.error && (
-                  <p className="mt-2 text-sm text-red-600">{fig.error}</p>
-                )}
+                  {fig.error && <p className="mt-2 text-sm text-red-600">{fig.error}</p>}
 
-                {fig.cards && (
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                    {fig.cards.map((c) => {
-                      const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.failed;
-                      return (
-                        <div key={c.index} className={`${GLASS} p-4`}>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold">
-                              Structure {c.index + 1}
-                            </span>
-                            <span
-                              className={`ml-auto rounded-full border px-3 py-1 text-xs font-medium ${st.cls}`}
-                            >
-                              {st.label}
-                            </span>
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-2 gap-2">
-                            <div className="rounded-2xl bg-white p-2 text-center">
-                              <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                                Crop from figure
-                              </div>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={`data:image/png;base64,${c.crop_png}`}
-                                alt="crop"
-                                className="mx-auto h-32 w-full object-contain"
-                              />
+                  {fig.cards && (
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      {fig.cards.map((c) => {
+                        const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.failed;
+                        return (
+                          <div key={c.index} className={`${GLASS} p-4`}>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold">Structure {c.index + 1}</span>
+                              <span
+                                className={`ml-auto rounded-full border px-3 py-1 text-xs font-medium ${st.cls}`}
+                              >
+                                {st.label}
+                              </span>
                             </div>
-                            {c.smiles ? (
+
+                            <div className="mt-3 grid grid-cols-2 gap-2">
                               <div className="rounded-2xl bg-white p-2 text-center">
                                 <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
-                                  Redrawn by RDKit
+                                  Crop from figure
                                 </div>
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
-                                  src={`${API}/draw?smiles=${encodeURIComponent(
-                                    c.smiles
-                                  )}&width=260&height=200`}
-                                  alt={c.smiles}
+                                  src={`data:image/png;base64,${c.crop_png}`}
+                                  alt="crop"
                                   className="mx-auto h-32 w-full object-contain"
                                 />
                               </div>
-                            ) : (
-                              <div className="flex items-center justify-center rounded-2xl bg-white p-2 text-center text-xs text-slate-500">
-                                No valid molecule was read
+                              {c.smiles ? (
+                                <div className="rounded-2xl bg-white p-2 text-center">
+                                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                                    Redrawn by RDKit
+                                  </div>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={`${API}/draw?smiles=${encodeURIComponent(
+                                      c.smiles
+                                    )}&width=260&height=200`}
+                                    alt={c.smiles}
+                                    className="mx-auto h-32 w-full object-contain"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center rounded-2xl bg-white p-2 text-center text-xs text-slate-500">
+                                  No valid molecule was read
+                                </div>
+                              )}
+                            </div>
+
+                            {c.smiles && (
+                              <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
+                                {c.smiles}
+                              </p>
+                            )}
+                            <p className="mt-1 text-xs text-slate-500">
+                              Model confidence: {c.confidence}
+                            </p>
+
+                            {c.status === "disagree" && (
+                              <div className="mt-2 rounded-xl bg-amber-50 p-2 text-[11px] text-amber-900">
+                                The two reads gave different molecules:
+                                {c.reads.map((r, i) => (
+                                  <div key={i} className="break-all font-mono">
+                                    {r.effort}: {r.smiles ?? r.error}
+                                  </div>
+                                ))}
                               </div>
                             )}
+
+                            {c.status === "failed" && (
+                              <p className="mt-2 text-xs text-red-600">
+                                {c.reads.map((r) => r.error).filter(Boolean)[0] ??
+                                  "Both reads failed."}{" "}
+                                Type the SMILES yourself if you know it.
+                              </p>
+                            )}
+
+                            {c.smiles && (
+                              <button
+                                onClick={() => useMolecule(c.smiles as string)}
+                                className={`${PILL_SMALL} mt-3`}
+                              >
+                                Use this molecule
+                              </button>
+                            )}
                           </div>
-
-                          {c.smiles && (
-                            <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
-                              {c.smiles}
-                            </p>
-                          )}
-                          <p className="mt-1 text-xs text-slate-500">
-                            Model confidence: {c.confidence}
-                          </p>
-
-                          {c.status === "disagree" && (
-                            <div className="mt-2 rounded-xl bg-amber-50 p-2 text-[11px] text-amber-900">
-                              The two reads gave different molecules:
-                              {c.reads.map((r, i) => (
-                                <div key={i} className="break-all font-mono">
-                                  {r.effort}: {r.smiles ?? r.error}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {c.status === "failed" && (
-                            <p className="mt-2 text-xs text-red-600">
-                              {c.reads
-                                .map((r) => r.error)
-                                .filter(Boolean)[0] ?? "Both reads failed."}{" "}
-                              Type the SMILES yourself if you know it.
-                            </p>
-                          )}
-
-                          {c.smiles && (
-                            <button
-                              onClick={() => useMolecule(c.smiles as string)}
-                              className={`${PILL_SMALL} mt-3`}
-                            >
-                              Use this molecule
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* CAMPAIGN RESULTS */}
-        {result && (
-          <div className="mt-12">
-            <div className="flex items-center gap-3">
-              <h2 className={`text-3xl font-extrabold tracking-tight ${NAVY}`}>
-                Campaign timeline
-              </h2>
-              <button
-                onClick={exportProject}
-                className="ml-auto rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
-              >
-                Save project file
-              </button>
-            </div>
-            <p className="mt-1 text-sm text-slate-600">
-              Start: <span className="font-mono">{result.start.smiles}</span> ·
-              QED {result.start.qed} · LogP {result.start.logp}
-            </p>
-
-            <div className="mt-4 max-w-xs">
-              <MolImage smiles={result.start.smiles} label="Starting molecule" />
-            </div>
-
-            {result.steps.length === 0 && (
-              <p className={`${GLASS} mt-6 p-4 text-sm`}>
-                {result.stop_reason.startsWith("The starting molecule")
-                  ? result.stop_reason
-                  : "No edit passed the guardrails. Try lowering the similarity slider."}
-              </p>
-            )}
-
-            <ol className="mt-6 space-y-5">
-              {result.steps.map((s) => (
-                <li key={s.step} className={`${GLASS} p-5`}>
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f8b8d] text-sm font-semibold text-white">
-                      {s.step}
-                    </span>
-                    <h3 className={`text-lg font-bold ${NAVY}`}>{s.edit_name}</h3>
-                    <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
-                      Planner: {s.planner}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm text-slate-700">{s.rationale}</p>
-                  {s.evidence && (
-                    <div
-                      className={`mt-3 rounded-xl border p-3 text-xs ${
-                        s.evidence.enough
-                          ? "border-teal-100 bg-teal-50/60 text-teal-900"
-                          : "border-slate-200 bg-slate-50 text-slate-600"
-                      }`}
-                    >
-                      <div className="font-semibold">
-                        Evidence from real data (computed by RDKit, not by the AI)
-                      </div>
-                      <div className="mt-1">{s.evidence.summary}</div>
-                      <div className="mt-1 text-[11px] opacity-70">
-                        Series: {s.evidence.series}. This measures EGFR potency,
-                        not solubility or metabolism.
-                      </div>
+                        );
+                      })}
                     </div>
                   )}
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <MolImage smiles={s.before.smiles} label="Before" />
-                    <MolImage smiles={s.after.smiles} label="After" />
-                  </div>
-                  <p className="mt-3 font-mono text-xs text-slate-500">
-                    {s.after.smiles}
-                  </p>
-                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                    <Delta label="QED" a={s.before.qed} b={s.after.qed} />
-                    <Delta label="LogP" a={s.before.logp} b={s.after.logp} />
-                    <Delta label="TPSA" a={s.before.tpsa} b={s.after.tpsa} />
-                  </div>
-                  <p className="mt-3 text-xs text-slate-500">
-                    Similarity to start: {s.similarity_to_start}
-                  </p>
-                </li>
+                </div>
               ))}
-            </ol>
+            </div>
+          )}
 
-            <p className="mt-6 text-sm text-slate-600">
-              Stopped because: {result.stop_reason}
-            </p>
+          {/* CAMPAIGN RESULTS */}
+          {result && (
+            <div className="mt-12">
+              <div className="flex items-center gap-3">
+                <h2 className={`text-3xl font-extrabold tracking-tight ${NAVY}`}>
+                  Campaign timeline
+                </h2>
+                <button
+                  onClick={exportProject}
+                  className="ml-auto rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
+                >
+                  Save project file
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-slate-600">
+                Start: <span className="font-mono">{result.start.smiles}</span> · QED{" "}
+                {result.start.qed} · LogP {result.start.logp}
+              </p>
 
-            <details className={`${GLASS} mt-6 p-4`}>
-              <summary className="cursor-pointer text-sm font-semibold text-slate-700">
-                Rejected ideas ({result.rejections.length})
-              </summary>
-              <ul className="mt-3 space-y-1 text-sm text-slate-600">
-                {result.rejections.map((r, i) => (
-                  <li key={i}>
-                    Step {r.step} · <b>{r.edit_id}</b> — {r.reason}
+              <div className="mt-4 max-w-xs">
+                <MolImage smiles={result.start.smiles} label="Starting molecule" />
+              </div>
+
+              {result.steps.length === 0 && (
+                <p className={`${GLASS} mt-6 p-4 text-sm`}>
+                  {result.stop_reason.startsWith("The starting molecule")
+                    ? result.stop_reason
+                    : "No edit passed the guardrails. Try “Explore” under guardrails."}
+                </p>
+              )}
+
+              <ol className="mt-6 space-y-5">
+                {result.steps.map((s) => (
+                  <li key={s.step} className={`${GLASS} p-5`}>
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f8b8d] text-sm font-semibold text-white">
+                        {s.step}
+                      </span>
+                      <h3 className={`text-lg font-bold ${NAVY}`}>{s.edit_name}</h3>
+                      <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
+                        Planner: {s.planner}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm text-slate-700">{s.rationale}</p>
+                    {s.evidence && (
+                      <div
+                        className={`mt-3 rounded-xl border p-3 text-xs ${
+                          s.evidence.enough
+                            ? "border-teal-100 bg-teal-50/60 text-teal-900"
+                            : "border-slate-200 bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        <div className="font-semibold">
+                          Evidence from real data (computed by RDKit, not by the AI)
+                        </div>
+                        <div className="mt-1">{s.evidence.summary}</div>
+                        <div className="mt-1 text-[11px] opacity-70">
+                          Series: {s.evidence.series}. This measures EGFR potency, not
+                          solubility or metabolism.
+                        </div>
+                      </div>
+                    )}
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <MolImage smiles={s.before.smiles} label="Before" />
+                      <MolImage smiles={s.after.smiles} label="After" />
+                    </div>
+                    <p className="mt-3 break-all font-mono text-xs text-slate-500">
+                      {s.after.smiles}
+                    </p>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <Delta label="QED" a={s.before.qed} b={s.after.qed} />
+                      <Delta label="LogP" a={s.before.logp} b={s.after.logp} />
+                      <Delta label="TPSA" a={s.before.tpsa} b={s.after.tpsa} />
+                    </div>
+                    <p className="mt-3 text-xs text-slate-500">
+                      Similarity to start: {s.similarity_to_start}
+                    </p>
                   </li>
                 ))}
-              </ul>
-            </details>
-          </div>
-        )}
+              </ol>
+
+              <p className="mt-6 text-sm text-slate-600">Stopped because: {result.stop_reason}</p>
+
+              <details className={`${GLASS} mt-6 p-4`}>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+                  Rejected ideas ({result.rejections.length})
+                </summary>
+                <ul className="mt-3 space-y-1 text-sm text-slate-600">
+                  {result.rejections.map((r, i) => (
+                    <li key={i}>
+                      Step {r.step} · <b>{r.edit_id}</b> — {r.reason}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </div>
+          )}
+        </div>
       </section>
 
       {/* FOOTER */}
       <footer className="mx-auto max-w-6xl border-t border-white/70 px-6 pb-10 pt-6">
         <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
           <span className={`font-semibold tracking-[0.3em] ${NAVY}`}>MOLDENOVO</span>
-          <span>
-            Muse Image made the hero artwork only. All chemistry comes from RDKit.
-          </span>
+          <span>Muse Image made the hero artwork only. All chemistry comes from RDKit.</span>
           <span className="ml-auto">
             Optimises developability and evidence-informed design, not binding.
           </span>
