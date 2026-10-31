@@ -7,6 +7,7 @@ Stops early once the target profile is met.
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
+from rdkit.Chem.Scaffolds import MurckoScaffold
 
 from chem_engine import analyze
 from edits import list_edits, apply_edit
@@ -22,6 +23,10 @@ PROTECTED_GROUPS = {
 
 # The chemist's target profile. The website can change these numbers.
 DEFAULT_PROFILE = {"logp_max": 3.0, "tpsa_max": 100.0}
+
+# How many ring atoms may turn into heteroatoms (for example ring C -> N)
+# compared with the starting molecule, over the whole campaign.
+MAX_RING_SWAPS = 1
 
 
 def similarity(smiles_a, smiles_b):
@@ -48,6 +53,51 @@ def lost_protected_group(candidate_smiles, start_smiles, protected):
     return None
 
 
+# ---------------------------------------------------------------
+# Scaffold check: keep the core of the starting molecule
+# ---------------------------------------------------------------
+def _ring_hetero_count(mol):
+    """Number of ring atoms that are not carbon."""
+    ri = mol.GetRingInfo()
+    return sum(
+        1 for a in mol.GetAtoms()
+        if ri.NumAtomRings(a.GetIdx()) > 0 and a.GetAtomicNum() != 6
+    )
+
+
+def _generic_scaffold(mol):
+    """Ring skeleton with every atom as carbon and every bond single. None if no rings."""
+    try:
+        scaf = MurckoScaffold.GetScaffoldForMol(mol)
+        if scaf is None or scaf.GetNumAtoms() == 0:
+            return None
+        return MurckoScaffold.MakeScaffoldGeneric(scaf)
+    except Exception:
+        return None
+
+
+def scaffold_problem(candidate_smiles, start_smiles, max_ring_swaps=MAX_RING_SWAPS):
+    """Return a reason string if the candidate drifted from the starting core, else None."""
+    cand = Chem.MolFromSmiles(candidate_smiles)
+    start = Chem.MolFromSmiles(start_smiles)
+    if cand is None or start is None:
+        return None
+
+    start_generic = _generic_scaffold(start)
+    if start_generic is None:        # no rings: nothing to protect
+        return None
+
+    cand_generic = _generic_scaffold(cand)
+    if cand_generic is None or not cand_generic.HasSubstructMatch(start_generic):
+        return "Drifts from the starting scaffold (the ring skeleton changed)"
+
+    extra = _ring_hetero_count(cand) - _ring_hetero_count(start)
+    if extra > max_ring_swaps:
+        return (f"Drifts from the starting scaffold ({extra} ring atoms became heteroatoms; "
+                f"at most {max_ring_swaps} allowed)")
+    return None
+
+
 def goals_met(report, profile=None):
     """True when the molecule already satisfies the target profile."""
     p = profile or DEFAULT_PROFILE
@@ -69,13 +119,17 @@ def is_improvement(candidate, current, profile=None):
     return candidate["qed"] > current["qed"] + 0.01   # otherwise: a real QED gain
 
 
-def check_guardrails(candidate, current, start_smiles, min_similarity, protected=None, profile=None):
+def check_guardrails(candidate, current, start_smiles, min_similarity,
+                     protected=None, profile=None, max_ring_swaps=MAX_RING_SWAPS):
     """Return a reason string if the candidate must be rejected, else None."""
     if not candidate["valid"]:
         return "Not a valid molecule"
     lost = lost_protected_group(candidate["smiles"], start_smiles, protected)
     if lost:
         return f"Damages protected group: {lost}"
+    drift = scaffold_problem(candidate["smiles"], start_smiles, max_ring_swaps)
+    if drift:
+        return drift
     if len(candidate["lipinski_violations"]) > len(current["lipinski_violations"]):
         return "Breaks Lipinski: " + "; ".join(candidate["lipinski_violations"])
     if len(candidate["veber_violations"]) > len(current["veber_violations"]):
@@ -128,7 +182,8 @@ def mock_planner(current, tried, rejections):
 
 
 def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity=0.4,
-                 protected=None, profile=None, stop_when_met=True, evidence=None):
+                 protected=None, profile=None, stop_when_met=True, evidence=None,
+                 max_ring_swaps=MAX_RING_SWAPS):
     """Run a multi-step optimization campaign and return the full story."""
     start = analyze(start_smiles)
     if not start["valid"]:
@@ -175,8 +230,8 @@ def run_campaign(start_smiles, planner=mock_planner, max_steps=5, min_similarity
             best, best_reason = None, None
             for smi in candidates:
                 cand = analyze(smi)
-                reason = check_guardrails(cand, current, start["smiles"],
-                                          min_similarity, protected, profile)
+                reason = check_guardrails(cand, current, start["smiles"], min_similarity,
+                                          protected, profile, max_ring_swaps)
                 if reason is None:
                     if best is None or cand["qed"] > best["qed"]:
                         best = cand
