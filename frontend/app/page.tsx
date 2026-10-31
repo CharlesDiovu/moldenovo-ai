@@ -23,6 +23,7 @@ type Step = {
   step: number;
   edit_name: string;
   rationale: string;
+  planner: string;
   evidence?: {
     summary: string;
     enough: boolean;
@@ -108,6 +109,120 @@ const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   },
 };
 
+/* ---------- shared look ---------- */
+const GLASS =
+  "rounded-[28px] border border-white/70 bg-white/55 shadow-[0_10px_40px_rgba(14,116,144,0.10)] backdrop-blur-xl";
+const PILL =
+  "rounded-full bg-[#0f8b8d] px-6 py-3 font-medium text-white shadow-sm transition hover:bg-[#0c7274] disabled:opacity-50";
+const PILL_SMALL =
+  "rounded-full bg-[#0f8b8d] px-4 py-1.5 text-sm font-medium text-white transition hover:bg-[#0c7274]";
+const PILL_OUTLINE =
+  "cursor-pointer rounded-full border border-[#0f8b8d] bg-white/50 px-5 py-2 text-sm font-medium text-[#0b6f71] transition hover:bg-white/80";
+const NAVY = "text-[#0b1f3a]";
+
+const HOW_IT_WORKS = [
+  {
+    n: "01",
+    model: "SAM 3.1",
+    tag: "Meta",
+    text: "Finds every structure in a figure from a paper.",
+  },
+  {
+    n: "02",
+    model: "Muse Wonder",
+    tag: "Meta",
+    text: "Reads each structure twice. Two agreeing reads earn a green badge.",
+  },
+  {
+    n: "03",
+    model: "Muse Spark",
+    tag: "Meta",
+    text: "Plans each edit from your goals and real matched-pair data.",
+  },
+  {
+    n: "04",
+    model: "RDKit",
+    tag: "Open source",
+    text: "Applies and checks every molecule. No AI writes chemistry.",
+  },
+];
+
+function HeroArt() {
+  const [ok, setOk] = useState(true);
+  if (ok) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="/hero.png"
+        alt=""
+        onError={() => setOk(false)}
+        className="h-full w-full rounded-[32px] object-cover"
+      />
+    );
+  }
+  // Fallback drawn with SVG: soft glass spheres and hexagons.
+  return (
+    <svg viewBox="0 0 600 460" className="h-full w-full" aria-hidden="true">
+      <defs>
+        <radialGradient id="sphereA" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#9be8e4" />
+          <stop offset="55%" stopColor="#1fa7ad" />
+          <stop offset="100%" stopColor="#0b6f85" />
+        </radialGradient>
+        <radialGradient id="sphereB" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#c9f4f0" />
+          <stop offset="60%" stopColor="#58c9c4" />
+          <stop offset="100%" stopColor="#17808d" />
+        </radialGradient>
+        <linearGradient id="glass" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
+          <stop offset="100%" stopColor="#a8dff0" stopOpacity="0.35" />
+        </linearGradient>
+      </defs>
+      <circle cx="390" cy="250" r="165" fill="url(#glass)" stroke="#ffffff" strokeWidth="3" />
+      <circle cx="345" cy="285" r="95" fill="url(#sphereA)" />
+      <circle cx="430" cy="205" r="70" fill="url(#sphereB)" />
+      <circle cx="300" cy="215" r="48" fill="url(#sphereB)" opacity="0.9" />
+      <g fill="url(#glass)" stroke="#ffffff" strokeWidth="2">
+        <polygon points="520,70 548,86 548,118 520,134 492,118 492,86" />
+        <polygon points="470,35 490,46 490,69 470,80 450,69 450,46" />
+        <polygon points="545,150 565,161 565,184 545,195 525,184 525,161" />
+      </g>
+      <circle cx="140" cy="120" r="10" fill="#bdeef0" opacity="0.8" />
+      <circle cx="95" cy="330" r="16" fill="#bdeef0" opacity="0.6" />
+    </svg>
+  );
+}
+
+function BackdropHexes() {
+  return (
+    <svg
+      className="pointer-events-none absolute inset-0 -z-10 h-full w-full"
+      aria-hidden="true"
+    >
+      <defs>
+        <pattern id="hexpat" width="56" height="97" patternUnits="userSpaceOnUse" patternTransform="scale(1.3)">
+          <path
+            d="M28 0 L56 16 L56 48 L28 64 L0 48 L0 16 Z M28 64 L28 97 M0 48 L0 81 M56 48 L56 81"
+            fill="none"
+            stroke="#8fd3dc"
+            strokeWidth="1"
+            opacity="0.35"
+          />
+        </pattern>
+        <linearGradient id="fadeMask" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fff" stopOpacity="1" />
+          <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+        <mask id="fade">
+          <rect width="100%" height="100%" fill="url(#fadeMask)" />
+        </mask>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#hexpat)" mask="url(#fade)" />
+    </svg>
+  );
+}
+
 function MolImage({ smiles, label }: { smiles: string; label: string }) {
   return (
     <div className="rounded-2xl bg-white/80 p-3 text-center">
@@ -131,7 +246,7 @@ function Delta({ label, a, b }: { label: string; a: number; b: number }) {
       <div className="text-slate-500">{label}</div>
       <div className="font-semibold">
         {a} → {b}{" "}
-        <span className="text-teal-700">
+        <span className="text-[#0b6f71]">
           ({d >= 0 ? "+" : ""}
           {d.toFixed(2)})
         </span>
@@ -164,8 +279,7 @@ export default function Home() {
   const [tpsaMax, setTpsaMax] = useState(100);
   const [stopWhenMet, setStopWhenMet] = useState(true);
 
-  // Project file import: remembers the saved protected list so the
-  // automatic group detection does not overwrite it.
+  // Project file import
   const pendingProtected = useRef<string[] | null>(null);
   const [projectNote, setProjectNote] = useState("");
 
@@ -184,7 +298,7 @@ export default function Home() {
           );
           pendingProtected.current = null;
         } else {
-          setProtectedSel(found); // default: protect everything found
+          setProtectedSel(found);
         }
       } catch {
         setAvailableGroups([]);
@@ -209,7 +323,6 @@ export default function Home() {
     }));
     setFigures((prev) => [...items, ...prev]);
 
-    // One figure at a time, so we never flood the Meta API.
     for (let i = 0; i < files.length; i++) {
       const id = items[i].id;
       try {
@@ -245,7 +358,9 @@ export default function Home() {
     setResult(null);
     setProjectNote("");
     setUsedNote(`Loaded into the starting molecule box: ${s}`);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    document
+      .getElementById("workbench")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function handleUpload(file: File) {
@@ -309,7 +424,6 @@ export default function Home() {
     setLoading(false);
   }
 
-  // ---------- Save / load a project file ----------
   function exportProject() {
     if (!result) return;
     const project = {
@@ -338,9 +452,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `moldenovo-project-${new Date()
-      .toISOString()
-      .slice(0, 10)}.json`;
+    a.download = `moldenovo-project-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     setProjectNote("Project file downloaded.");
@@ -366,7 +478,9 @@ export default function Home() {
       setProjectNote(
         `Loaded project saved ${data.saved_at ?? "earlier"}. No models were called.`
       );
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      document
+        .getElementById("workbench")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch {
       setProjectNote("Could not read that file.");
     }
@@ -374,27 +488,111 @@ export default function Home() {
 
   return (
     <main
-      className="min-h-screen px-6 py-12 text-slate-900"
+      className="relative min-h-screen overflow-hidden text-slate-900"
       style={{
+        fontFamily:
+          "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
         background:
-          "linear-gradient(160deg, #e6f9fb 0%, #ffffff 45%, #dff5f3 100%)",
+          "radial-gradient(900px 500px at 85% -5%, #c6f0f1 0%, rgba(198,240,241,0) 60%), radial-gradient(700px 500px at 0% 40%, #dff5f3 0%, rgba(223,245,243,0) 60%), linear-gradient(180deg, #e9fafb 0%, #ffffff 55%, #e4f6f5 100%)",
       }}
     >
-      <div className="mx-auto max-w-4xl">
-        <p className="tracking-[0.3em] text-sm text-slate-600">MOLDENOVO AI</p>
-        <h1 className="mt-4 text-5xl font-bold leading-tight text-[#0b1f3a]">
-          Design better molecules,
-          <br />
-          one checked step at a time.
-        </h1>
+      <BackdropHexes />
+
+      {/* NAV */}
+      <header className="mx-auto flex max-w-6xl items-center px-6 pt-8">
+        <div className={`text-lg font-semibold tracking-[0.35em] ${NAVY}`}>
+          MOLDENOVO
+        </div>
+        <nav className="ml-auto hidden items-center gap-8 text-sm text-slate-700 sm:flex">
+          <a href="#how" className="hover:text-[#0b6f71]">How it works</a>
+          <a href="#workbench" className="hover:text-[#0b6f71]">Workbench</a>
+          <a
+            href="#workbench"
+            className="rounded-full bg-[#0b2a4a] px-5 py-2 text-white transition hover:bg-[#0b1f3a]"
+          >
+            Start a campaign
+          </a>
+        </nav>
+      </header>
+
+      {/* HERO */}
+      <section className="mx-auto grid max-w-6xl items-center gap-10 px-6 pb-16 pt-14 md:grid-cols-2">
+        <div>
+          <h1
+            className={`text-5xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl ${NAVY}`}
+          >
+            Medicinal chemistry,
+            <br />
+            checked at every step.
+          </h1>
+          <p className="mt-6 max-w-md text-lg text-slate-700">
+            An evidence-grounded copilot for lead optimisation. Meta’s Muse
+            models plan the edits. RDKit applies and verifies every one.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center gap-4">
+            <a href="#workbench" className={`${PILL} inline-block`}>
+              Open the workbench →
+            </a>
+            <a
+              href="#how"
+              className="text-sm font-medium text-[#0b2a4a] underline underline-offset-4"
+            >
+              See how it works
+            </a>
+          </div>
+          <div className="mt-10 flex flex-wrap gap-6 text-sm text-slate-700">
+            <span>✓ Evidence-led</span>
+            <span>✓ Guardrails you control</span>
+            <span>✓ Every claim traceable</span>
+          </div>
+        </div>
+        <div className="relative h-[340px] sm:h-[420px]">
+          <div className={`${GLASS} absolute inset-0 overflow-hidden p-2`}>
+            <HeroArt />
+          </div>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section id="how" className="mx-auto max-w-6xl px-6 pb-16">
+        <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">
+          How it works
+        </p>
+        <h2 className={`mt-3 text-4xl font-extrabold tracking-tight ${NAVY}`}>
+          Four tools, one checked pipeline.
+        </h2>
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {HOW_IT_WORKS.map((h) => (
+            <div key={h.n} className={`${GLASS} p-5`}>
+              <div className="flex items-center text-xs text-slate-500">
+                <span>{h.n}</span>
+                <span className="ml-auto rounded-full bg-[#e3f6f6] px-2.5 py-0.5 text-[11px] font-medium text-[#0b6f71]">
+                  {h.tag}
+                </span>
+              </div>
+              <h3 className={`mt-4 text-lg font-bold ${NAVY}`}>{h.model}</h3>
+              <p className="mt-1 text-sm text-slate-600">{h.text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* WORKBENCH */}
+      <section id="workbench" className="mx-auto max-w-4xl scroll-mt-8 px-6 pb-20">
+        <p className="text-xs font-medium uppercase tracking-[0.3em] text-slate-500">
+          Workbench
+        </p>
+        <h2 className={`mt-3 text-4xl font-extrabold tracking-tight ${NAVY}`}>
+          Start with a clearer picture.
+        </h2>
 
         {/* INPUT CARD */}
-        <section className="mt-10 rounded-3xl border border-white bg-white/60 p-6 shadow-sm backdrop-blur">
+        <div className={`${GLASS} mt-8 p-6`}>
           <div className="flex items-center gap-3">
             <label className="text-sm font-medium text-slate-600">
               Starting molecule (SMILES)
             </label>
-            <label className="ml-auto cursor-pointer rounded-full border border-slate-300 px-4 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+            <label className="ml-auto cursor-pointer rounded-full border border-slate-300 bg-white/50 px-4 py-1 text-xs font-medium text-slate-700 hover:bg-white/80">
               Open a project file
               <input
                 type="file"
@@ -411,18 +609,16 @@ export default function Home() {
           <input
             value={smiles}
             onChange={(e) => setSmiles(e.target.value)}
-            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-teal-500"
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-white/90 px-4 py-3 font-mono text-sm outline-none focus:border-[#0f8b8d]"
           />
-          {usedNote && (
-            <p className="mt-2 text-xs text-teal-700">{usedNote}</p>
-          )}
+          {usedNote && <p className="mt-2 text-xs text-[#0b6f71]">{usedNote}</p>}
           {projectNote && (
-            <p className="mt-2 text-xs text-teal-700">{projectNote}</p>
+            <p className="mt-2 text-xs text-[#0b6f71]">{projectNote}</p>
           )}
 
           {/* UPLOAD BUTTONS */}
           <div className="mt-4 flex flex-wrap gap-3">
-            <label className="inline-block cursor-pointer rounded-full border border-teal-700 px-5 py-2 text-sm font-medium text-teal-800 transition hover:bg-teal-50">
+            <label className={PILL_OUTLINE}>
               {reading
                 ? "Muse Wonder is reading..."
                 : "Upload one molecule drawing"}
@@ -439,7 +635,7 @@ export default function Home() {
               />
             </label>
 
-            <label className="inline-block cursor-pointer rounded-full bg-teal-700 px-5 py-2 text-sm font-medium text-white transition hover:bg-teal-800">
+            <label className="inline-block cursor-pointer rounded-full bg-[#0f8b8d] px-5 py-2 text-sm font-medium text-white transition hover:bg-[#0c7274]">
               {figureBusy
                 ? "SAM + Wonder are working..."
                 : "Upload figures with many molecules"}
@@ -460,12 +656,14 @@ export default function Home() {
 
           {/* CONFIRM WHAT WE READ (single drawing) */}
           {readResult && (
-            <div className="mt-5 rounded-2xl border border-teal-100 bg-white/80 p-4">
+            <div className="mt-5 rounded-2xl border border-white/80 bg-white/70 p-4">
               {readResult.valid && readResult.smiles ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">Is this your molecule?</h3>
-                    <span className="ml-auto rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
+                    <h3 className={`font-semibold ${NAVY}`}>
+                      Is this your molecule?
+                    </h3>
+                    <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
                       Read by {readResult.model} · confidence{" "}
                       {readResult.confidence}
                     </span>
@@ -501,15 +699,12 @@ export default function Home() {
                     right one.
                   </p>
                   <div className="mt-4 flex gap-3">
-                    <button
-                      onClick={acceptRead}
-                      className="rounded-full bg-teal-700 px-5 py-2 text-sm font-medium text-white hover:bg-teal-800"
-                    >
+                    <button onClick={acceptRead} className={PILL_SMALL}>
                       Yes, use this molecule
                     </button>
                     <button
                       onClick={discardRead}
-                      className="rounded-full border border-slate-300 px-5 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm font-medium text-slate-700 hover:bg-white"
                     >
                       No, discard
                     </button>
@@ -525,7 +720,7 @@ export default function Home() {
                   )}
                   <button
                     onClick={discardRead}
-                    className="mt-3 rounded-full border border-slate-300 px-4 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                    className="mt-3 rounded-full border border-slate-300 bg-white/60 px-4 py-1.5 text-sm text-slate-700 hover:bg-white"
                   >
                     Dismiss
                   </button>
@@ -538,7 +733,7 @@ export default function Home() {
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <label className="text-sm font-medium text-slate-600">
               Target profile: maximum LogP{" "}
-              <span className="font-semibold text-teal-700">
+              <span className="font-semibold text-[#0b6f71]">
                 {logpMax.toFixed(1)}
               </span>
               <input
@@ -548,12 +743,12 @@ export default function Home() {
                 step={0.5}
                 value={logpMax}
                 onChange={(e) => setLogpMax(parseFloat(e.target.value))}
-                className="mt-2 w-full accent-teal-600"
+                className="mt-2 w-full accent-[#0f8b8d]"
               />
             </label>
             <label className="text-sm font-medium text-slate-600">
               Maximum TPSA{" "}
-              <span className="font-semibold text-teal-700">{tpsaMax}</span>
+              <span className="font-semibold text-[#0b6f71]">{tpsaMax}</span>
               <input
                 type="range"
                 min={40}
@@ -561,7 +756,7 @@ export default function Home() {
                 step={10}
                 value={tpsaMax}
                 onChange={(e) => setTpsaMax(parseFloat(e.target.value))}
-                className="mt-2 w-full accent-teal-600"
+                className="mt-2 w-full accent-[#0f8b8d]"
               />
             </label>
           </div>
@@ -569,7 +764,7 @@ export default function Home() {
           <label className="mt-4 flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
-              className="accent-teal-600"
+              className="accent-[#0f8b8d]"
               checked={stopWhenMet}
               onChange={(e) => setStopWhenMet(e.target.checked)}
             />
@@ -591,7 +786,7 @@ export default function Home() {
                   <label key={g} className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
-                      className="accent-teal-600"
+                      className="accent-[#0f8b8d]"
                       checked={protectedSel.includes(g)}
                       onChange={(e) =>
                         setProtectedSel((prev) =>
@@ -610,7 +805,7 @@ export default function Home() {
 
           <label className="mt-6 block text-sm font-medium text-slate-600">
             How far may the AI wander from your molecule? Minimum similarity:{" "}
-            <span className="font-semibold text-teal-700">
+            <span className="font-semibold text-[#0b6f71]">
               {similarity.toFixed(2)}
             </span>
           </label>
@@ -621,29 +816,25 @@ export default function Home() {
             step={0.05}
             value={similarity}
             onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-            className="mt-2 w-full accent-teal-600"
+            className="mt-2 w-full accent-[#0f8b8d]"
           />
           <div className="flex justify-between text-xs text-slate-500">
             <span>Explore freely</span>
             <span>Stay very close</span>
           </div>
 
-          <button
-            onClick={run}
-            disabled={loading}
-            className="mt-6 rounded-full bg-teal-700 px-6 py-3 font-medium text-white transition hover:bg-teal-800 disabled:opacity-50"
-          >
+          <button onClick={run} disabled={loading} className={`${PILL} mt-6`}>
             {loading
               ? "Muse Spark is planning (about a minute)..."
               : "Run optimization campaign →"}
           </button>
           {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
-        </section>
+        </div>
 
         {/* FIGURE RESULTS */}
         {figures.length > 0 && (
-          <section className="mt-10">
-            <h2 className="text-2xl font-bold text-[#0b1f3a]">
+          <div className="mt-12">
+            <h2 className={`text-2xl font-extrabold tracking-tight ${NAVY}`}>
               Structures found in your figures
             </h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -684,10 +875,7 @@ export default function Home() {
                     {fig.cards.map((c) => {
                       const st = STATUS_STYLE[c.status] ?? STATUS_STYLE.failed;
                       return (
-                        <div
-                          key={c.index}
-                          className="rounded-3xl border border-white bg-white/60 p-4 shadow-sm backdrop-blur"
-                        >
+                        <div key={c.index} className={`${GLASS} p-4`}>
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-semibold">
                               Structure {c.index + 1}
@@ -756,8 +944,7 @@ export default function Home() {
                             <p className="mt-2 text-xs text-red-600">
                               {c.reads
                                 .map((r) => r.error)
-                                .filter(Boolean)[0] ??
-                                "Both reads failed."}{" "}
+                                .filter(Boolean)[0] ?? "Both reads failed."}{" "}
                               Type the SMILES yourself if you know it.
                             </p>
                           )}
@@ -765,7 +952,7 @@ export default function Home() {
                           {c.smiles && (
                             <button
                               onClick={() => useMolecule(c.smiles as string)}
-                              className="mt-3 rounded-full bg-teal-700 px-4 py-1.5 text-sm font-medium text-white hover:bg-teal-800"
+                              className={`${PILL_SMALL} mt-3`}
                             >
                               Use this molecule
                             </button>
@@ -777,19 +964,19 @@ export default function Home() {
                 )}
               </div>
             ))}
-          </section>
+          </div>
         )}
 
         {/* CAMPAIGN RESULTS */}
         {result && (
-          <section className="mt-10">
+          <div className="mt-12">
             <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-bold text-[#0b1f3a]">
+              <h2 className={`text-3xl font-extrabold tracking-tight ${NAVY}`}>
                 Campaign timeline
               </h2>
               <button
                 onClick={exportProject}
-                className="ml-auto rounded-full border border-teal-700 px-4 py-1.5 text-sm font-medium text-teal-800 hover:bg-teal-50"
+                className="ml-auto rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
               >
                 Save project file
               </button>
@@ -804,7 +991,7 @@ export default function Home() {
             </div>
 
             {result.steps.length === 0 && (
-              <p className="mt-6 rounded-2xl bg-white/70 p-4 text-sm">
+              <p className={`${GLASS} mt-6 p-4 text-sm`}>
                 {result.stop_reason.startsWith("The starting molecule")
                   ? result.stop_reason
                   : "No edit passed the guardrails. Try lowering the similarity slider."}
@@ -813,16 +1000,13 @@ export default function Home() {
 
             <ol className="mt-6 space-y-5">
               {result.steps.map((s) => (
-                <li
-                  key={s.step}
-                  className="rounded-3xl border border-white bg-white/60 p-5 shadow-sm backdrop-blur"
-                >
+                <li key={s.step} className={`${GLASS} p-5`}>
                   <div className="flex items-center gap-3">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-teal-700 text-sm font-semibold text-white">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0f8b8d] text-sm font-semibold text-white">
                       {s.step}
                     </span>
-                    <h3 className="text-lg font-semibold">{s.edit_name}</h3>
-                    <span className="ml-auto rounded-full bg-teal-50 px-3 py-1 text-xs font-medium text-teal-800">
+                    <h3 className={`text-lg font-bold ${NAVY}`}>{s.edit_name}</h3>
+                    <span className="ml-auto rounded-full bg-[#e3f6f6] px-3 py-1 text-xs font-medium text-[#0b6f71]">
                       Planner: {s.planner}
                     </span>
                   </div>
@@ -868,7 +1052,7 @@ export default function Home() {
               Stopped because: {result.stop_reason}
             </p>
 
-            <details className="mt-6 rounded-2xl bg-white/60 p-4">
+            <details className={`${GLASS} mt-6 p-4`}>
               <summary className="cursor-pointer text-sm font-semibold text-slate-700">
                 Rejected ideas ({result.rejections.length})
               </summary>
@@ -880,9 +1064,22 @@ export default function Home() {
                 ))}
               </ul>
             </details>
-          </section>
+          </div>
         )}
-      </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="mx-auto max-w-6xl border-t border-white/70 px-6 pb-10 pt-6">
+        <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
+          <span className={`font-semibold tracking-[0.3em] ${NAVY}`}>MOLDENOVO</span>
+          <span>
+            Muse Image made the hero artwork only. All chemistry comes from RDKit.
+          </span>
+          <span className="ml-auto">
+            Optimises developability and evidence-informed design, not binding.
+          </span>
+        </div>
+      </footer>
     </main>
   );
 }
