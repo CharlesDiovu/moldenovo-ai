@@ -619,6 +619,45 @@ export default function Home() {
     }
   }
 
+  async function downloadReport() {
+    if (!result) return;
+    try {
+      const res = await fetch(`${API}/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          saved_at: new Date().toISOString(),
+          settings: {
+            smiles,
+            min_similarity: similarity,
+            logp_max: logpMax,
+            tpsa_max: tpsaMax,
+            protected: protectedSel,
+            stop_when_met: stopWhenMet,
+          },
+          models: {
+            planner: "muse-spark-1.3",
+            figure_reading: "muse-wonder-1.0",
+            segmentation: "sam-3.1",
+            cover_art: "muse-image-1.0",
+            chemistry: "RDKit",
+          },
+          result,
+        }),
+      });
+      if (!res.ok) throw new Error("report failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "moldenovo-report.pdf";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setProjectNote("Could not build the PDF. Is the backend running?");
+    }
+  }
+
   function choosePreset(id: string) {
     setPreset(id);
     const p = PRESETS.find((x) => x.id === id);
@@ -1234,6 +1273,12 @@ export default function Home() {
                   onClick={exportProject}
                   className="ml-auto rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
                 >
+                  <button
+                    onClick={downloadReport}
+                    className="ml-auto rounded-full bg-[#0f8b8d] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c7274]"
+                  >
+                    Download PDF report
+                  </button>
                   Save project file
                 </button>
               </div>

@@ -26,6 +26,8 @@ from evidence import load_evidence
 from meta_client import ask_with_image
 from sam_client import find_structures, crop_structures
 
+from report import build_report
+
 app = FastAPI(title="MolDeNovo API")
 
 # Lets the website (which runs on a different address) talk to this server.
@@ -289,3 +291,12 @@ def read_figure(file: UploadFile = File(...)):
         "models": {"segmentation": "sam-3.1", "reading": "muse-wonder-1.0"},
         "cards": cards,
     }
+
+@app.post("/report")
+def report(project: dict):
+    pdf = build_report(project)
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="moldenovo-report.pdf"'},
+    )

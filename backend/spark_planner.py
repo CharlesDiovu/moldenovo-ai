@@ -4,7 +4,7 @@ The Muse Spark planner: the real "AI" that picks the next edit.
 It now also reads matched-pair evidence supplied by code.
 """
 
-from edits import list_edits
+from edits import list_edits, apply_edit
 from meta_client import ask_json
 
 DEFAULT_PROFILE = {"logp_max": 3.0, "tpsa_max": 100.0}
@@ -22,7 +22,8 @@ def _describe(report):
 
 def spark_planner(current, tried, rejections, protected=None, profile=None, evidence=None):
     """Ask Muse Spark for the next edit. Returns None if no edits are left."""
-    menu = {eid: info for eid, info in list_edits().items() if eid not in tried}
+    menu = {eid: info for eid, info in list_edits().items()
+           if eid not in tried and apply_edit(current["smiles"], eid)}
     if not menu:
         return None
 
