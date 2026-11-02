@@ -1270,15 +1270,15 @@ export default function Home() {
                   Campaign timeline
                 </h2>
                 <button
-                  onClick={exportProject}
-                  className="ml-auto rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
+                  onClick={downloadReport}
+                  className="ml-auto rounded-full bg-[#0f8b8d] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c7274]"
                 >
-                  <button
-                    onClick={downloadReport}
-                    className="ml-auto rounded-full bg-[#0f8b8d] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#0c7274]"
-                  >
-                    Download PDF report
-                  </button>
+                  Download PDF report
+                </button>
+                <button
+                  onClick={exportProject}
+                  className="ml-2 rounded-full border border-[#0f8b8d] bg-white/50 px-4 py-1.5 text-sm font-medium text-[#0b6f71] hover:bg-white/80"
+                >
                   Save project file
                 </button>
               </div>
