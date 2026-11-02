@@ -68,15 +68,25 @@ type FigureRead = {
   error: string | null;
 };
 
+type ReadOut = {
+  effort: string;
+  smiles: string | null;
+  confidence: string;
+  notes: string;
+  error: string | null;
+};
+
 type FigureCard = {
   index: number;
   crop_png: string;
-  status: "agreed" | "single" | "disagree" | "failed";
+  status: "agreed" | "single" | "disagree" | "failed" | "pending";
   valid: boolean;
   smiles: string | null;
   confidence: string;
   notes: string;
   reads: FigureRead[];
+  low?: ReadOut | null;
+  high?: ReadOut | null;
 };
 
 type FigureItem = {
@@ -99,6 +109,10 @@ type Analysis = {
 };
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
+  pending: {
+    label: "Reading... a second read is checking",
+    cls: "bg-slate-50 text-slate-600 border-slate-200",
+  },
   agreed: {
     label: "Two reads agree",
     cls: "bg-emerald-50 text-emerald-800 border-emerald-200",
@@ -452,6 +466,72 @@ export default function Home() {
     setFigures((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }
 
+  function deriveCard(low: ReadOut | null, high: ReadOut | null) {
+    const done = [low, high].filter(Boolean) as ReadOut[];
+    const good = done.filter((r) => r.smiles);
+    const chosen = high?.smiles ? high : low?.smiles ? low : null;
+    let status: FigureCard["status"];
+    if (!low || !high) status = "pending";
+    else if (good.length === 2) status = low.smiles === high.smiles ? "agreed" : "disagree";
+    else if (good.length === 1) status = "single";
+    else status = "failed";
+    return {
+      status,
+      valid: chosen !== null,
+      smiles: chosen ? chosen.smiles : null,
+      confidence: chosen ? chosen.confidence : "unknown",
+      notes: chosen ? chosen.notes : "",
+      reads: done.map((r) => ({
+        effort: r.effort,
+        smiles: r.smiles,
+        confidence: r.confidence,
+        error: r.error,
+      })),
+    };
+  }
+
+  function updateCard(figId: number, index: number, which: "low" | "high", read: ReadOut) {
+    setFigures((prev) =>
+      prev.map((f) => {
+        if (f.id !== figId || !f.cards) return f;
+        return {
+          ...f,
+          cards: f.cards.map((c) => {
+            if (c.index !== index) return c;
+            const low = which === "low" ? read : c.low ?? null;
+            const high = which === "high" ? read : c.high ?? null;
+            return { ...c, ...deriveCard(low, high), low, high };
+          }),
+        };
+      })
+    );
+  }
+
+  async function readOne(
+    figId: number,
+    card: { index: number; crop_png: string },
+    effort: "low" | "high"
+  ) {
+    let out: ReadOut;
+    try {
+      const res = await fetch(`${API}/read-crop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ crop_png: card.crop_png, effort }),
+      });
+      out = await res.json();
+    } catch {
+      out = {
+        effort,
+        smiles: null,
+        confidence: "unknown",
+        notes: "",
+        error: "Could not reach the backend.",
+      };
+    }
+    updateCard(figId, card.index, effort, out);
+  }
+
   async function handleFigures(files: File[]) {
     setFigureBusy(true);
     const base = Date.now();
@@ -468,18 +548,33 @@ export default function Home() {
       try {
         const form = new FormData();
         form.append("file", files[i]);
-        const res = await fetch(`${API}/read-figure`, { method: "POST", body: form });
-        const data = await res.json();
-        if (data.error) {
-          patchFigure(id, { loading: false, error: data.error });
-        } else {
-          patchFigure(id, {
-            loading: false,
-            found: data.found,
-            capped: data.capped,
-            cards: data.cards,
-          });
+        const res = await fetch(`${API}/segment-figure`, { method: "POST", body: form });
+        const seg = await res.json();
+        if (seg.error) {
+          patchFigure(id, { loading: false, error: seg.error });
+          continue;
         }
+        const cards: FigureCard[] = seg.cards.map(
+          (c: { index: number; crop_png: string }) => ({
+            index: c.index,
+            crop_png: c.crop_png,
+            status: "pending",
+            valid: false,
+            smiles: null,
+            confidence: "unknown",
+            notes: "",
+            reads: [],
+            low: null,
+            high: null,
+          })
+        );
+        patchFigure(id, { loading: false, found: seg.found, capped: seg.capped, cards });
+        const jobs: Promise<void>[] = [];
+        for (const c of seg.cards) {
+          jobs.push(readOne(id, c, "low"));
+          jobs.push(readOne(id, c, "high"));
+        }
+        await Promise.all(jobs);
       } catch {
         patchFigure(id, {
           loading: false,
@@ -1211,7 +1306,7 @@ export default function Home() {
                                 </div>
                               ) : (
                                 <div className="flex items-center justify-center rounded-2xl bg-white p-2 text-center text-xs text-slate-500">
-                                  No valid molecule was read
+                                  {c.status === "pending" ? "Reading..." : "No valid molecule was read"}
                                 </div>
                               )}
                             </div>

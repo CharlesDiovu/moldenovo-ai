@@ -25,7 +25,7 @@ from spark_planner import spark_planner
 from evidence import load_evidence
 from meta_client import ask_with_image
 from sam_client import find_structures, crop_structures
-
+import time
 from report import build_report
 
 app = FastAPI(title="MolDeNovo API")
@@ -202,10 +202,11 @@ Reply with JSON only, in exactly this shape:
 MAX_STRUCTURES = 12
 
 
-def _attempt(path, effort):
+def _attempt(path, effort, timeout=180, tries=2):
     """One read of one crop. Never raises; failures are reported in the result."""
     try:
-        text = ask_with_image(FIGURE_PROMPT, path, effort=effort)
+        text = ask_with_image(FIGURE_PROMPT, path, effort=effort,
+                              timeout=timeout, tries=tries)
         parsed = json.loads(text[text.find("{"): text.rfind("}") + 1])
     except Exception as e:
         return {"effort": effort, "smiles": None, "raw": "", "confidence": "unknown",
@@ -300,3 +301,65 @@ def report(project: dict):
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="moldenovo-report.pdf"'},
     )
+
+# ---------------------------------------------------------------
+# Fast figure pipeline: segment first, then read each crop on its own
+# ---------------------------------------------------------------
+@app.post("/segment-figure")
+def segment_figure(file: UploadFile = File(...)):
+    """SAM only. Returns the crops quickly so the page can show them at once."""
+    suffix = os.path.splitext(file.filename or "")[1].lower()
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp"):
+        return {"error": "Please upload a PNG or JPG image."}
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file.file.read())
+        path = tmp.name
+    t0 = time.time()
+    try:
+        boxes = find_structures(path)
+        total_found = len(boxes)
+        boxes = boxes[:MAX_STRUCTURES]
+        crops = crop_structures(path, boxes)
+    except Exception as e:
+        return {"error": f"Segmentation failed: {e}"}
+    finally:
+        os.remove(path)
+    print(f"[timing] SAM found {total_found} structures in {time.time() - t0:.1f}s")
+
+    if not crops:
+        return {"error": "SAM found no structures in this image.", "found": 0}
+
+    cards = []
+    for i, img in enumerate(crops):
+        img.thumbnail((640, 640))          # smaller upload, faster read
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        cards.append({"index": i,
+                      "crop_png": base64.b64encode(buf.getvalue()).decode("ascii")})
+    return {"found": total_found, "capped": total_found > MAX_STRUCTURES, "cards": cards}
+
+
+class CropRequest(BaseModel):
+    crop_png: str
+    effort: str = "low"
+
+
+@app.post("/read-crop")
+def read_crop(req: CropRequest):
+    """One Wonder read of one crop, with a hard time limit."""
+    effort = "high" if req.effort == "high" else "low"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+        tmp.write(base64.b64decode(req.crop_png))
+        path = tmp.name
+    t0 = time.time()
+    try:
+        if effort == "high":
+            out = _attempt(path, "high", timeout=45, tries=1)
+        else:
+            out = _attempt(path, "low", timeout=30, tries=2)
+    finally:
+        os.remove(path)
+    print(f"[timing] {effort} read took {time.time() - t0:.1f}s -> "
+          f"{'ok' if out['smiles'] else out['error']}")
+    return out

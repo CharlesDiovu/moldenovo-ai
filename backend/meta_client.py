@@ -82,7 +82,7 @@ def ask_json(prompt, **kwargs):
     return json.loads(text[start : end + 1])
 
 
-def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", timeout=180):
+def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", timeout=180, tries=2):
     """Send a prompt plus an image to a Muse vision model. Returns the reply text."""
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -103,7 +103,7 @@ def ask_with_image(prompt, image_path, model="muse-wonder-1.0", effort="low", ti
         "stream": False,
         "reasoning": {"effort": effort},
     }
-    return _extract_text(_post_with_retries(payload, timeout, tries=2))
+    return _extract_text(_post_with_retries(payload, timeout, tries=tries))
 
 
 if __name__ == "__main__":
