@@ -5,7 +5,7 @@
 ### Try it now: https://moldenovo-ai.vercel.app/
 
 No install needed. Hackathon track: *Push the Frontier* (accelerating a scientific experiment).
-Demo video: *(add link)*
+Demo video: *(https://youtu.be/mp_2YTwgDoI?si=xcV2IKFWnWxaPL89)*
 
 > The first request after a quiet period can take up to a minute while the server wakes up. A campaign takes about a minute to run.
 
