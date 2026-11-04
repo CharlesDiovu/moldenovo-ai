@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const API = "http://127.0.0.1:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 const GROUP_LABELS: Record<string, string> = {
   carboxylic_acid: "Carboxylic acid",
@@ -461,6 +461,10 @@ export default function Home() {
     }, 500);
     return () => clearTimeout(t);
   }, [smiles]);
+
+  useEffect(() => {
+    fetch(`${API}/health`).catch(() => {});
+  }, []);
 
   function patchFigure(id: number, patch: Partial<FigureItem>) {
     setFigures((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));

@@ -10,14 +10,12 @@ import json
 import base64
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
-
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from rdkit import Chem
 from rdkit.Chem.Draw import rdMolDraw2D
-
 from chem_engine import analyze
 from edits import list_edits, apply_edit
 from campaign import run_campaign, mock_planner, PROTECTED_GROUPS
@@ -27,8 +25,31 @@ from meta_client import ask_with_image
 from sam_client import find_structures, crop_structures
 import time
 from report import build_report
+from collections import defaultdict
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
 
 app = FastAPI(title="MolDeNovo API")
+
+HITS = defaultdict(list)
+LIMITED = ("/campaign", "/read-structure", "/segment-figure", "/read-crop", "/read-figure")
+MAX_PER_HOUR = 80
+
+@app.middleware("http")
+async def rate_limit(request: Request, call_next):
+    if request.method == "POST" and request.url.path in LIMITED:
+        fwd = request.headers.get("x-forwarded-for", "")
+        ip = fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+        now = time.time()
+        HITS[ip] = [t for t in HITS[ip] if now - t < 3600]
+        if len(HITS[ip]) >= MAX_PER_HOUR:
+            return JSONResponse(
+                {"error": "Demo rate limit reached. Please try again later."},
+                status_code=429,
+            )
+        HITS[ip].append(now)
+    return await call_next(request)
 
 # Lets the website (which runs on a different address) talk to this server.
 app.add_middleware(

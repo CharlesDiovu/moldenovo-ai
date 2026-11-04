@@ -19,5 +19,6 @@ node_modules/
 backend/sam_raw.jsonl
 backend/crops/
 backend/sam_boxes.png
-backend/data/
+backend/data/*
+!backend/data/mmp_stats.csv
 backend/test_figure.jpg
